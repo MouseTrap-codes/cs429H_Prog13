@@ -276,6 +276,28 @@ module tinker_core (
         end
     end
 
+    logic        we_d1,  we_d2;
+    logic [31:0] addr_d1,addr_d2;
+    logic [63:0] data_d1,data_d2;
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            {we_d1,we_d2} <= 2'b00;
+            addr_d1 <= 0; addr_d2 <= 0;
+            data_d1 <= 0; data_d2 <= 0;
+        end else begin
+            // 1‑cycle pipeline delay
+            we_d1   <= EXMEM.ctrl.memWrite;
+            addr_d1 <= EXMEM.aluResult[31:0];
+            data_d1 <= EXMEM.rtVal;
+
+            // 2‑cycle (stable) copy that the RAM will use
+            we_d2   <= we_d1;
+            addr_d2 <= addr_d1;
+            data_d2 <= data_d1;
+        end
+    end
+
     memory memory (
         .clk(clk),
         .reset(reset),
@@ -283,9 +305,9 @@ module tinker_core (
         .fetch_instruction(instr_F),
         .data_load_addr(mem_addr_W),
         .data_load(dummy_dload),
-        .store_we(store_we_r),
-        .store_addr(store_addr_r),
-        .store_data(store_data_r)
+        .store_we(we_d2),
+        .store_addr(addr_d2),
+        .store_data(data_d2)
     );
 
     // IF/ID pipeline register --> holds values entering ID stage
