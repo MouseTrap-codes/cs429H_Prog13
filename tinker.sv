@@ -328,6 +328,7 @@ module tinker_core (
         logic isBranch; // early branch decison/flush
         logic isJump; // call/return
         logic isFPU; // is floating point op?
+        logic halt;
     } id_ctrl_t;
 
     id_ctrl_t id_ctrl; // control bundle produced in ID
@@ -335,6 +336,10 @@ module tinker_core (
     always @(*) begin
         // preset all bits to 0
         id_ctrl = '0;
+
+        if (op_ID == 5'hf) begin
+            id_ctrl.halt = 1'b1;
+        end
 
         unique case (op_ID)
         // ALU --> result goes to rd
@@ -588,17 +593,11 @@ module tinker_core (
     always @(*) begin
         wb_write_data = MEMWB.ctrl.memToReg ? MEMWB.memData : MEMWB.aluResult;
         wb_we = MEMWB.ctrl.regWrite; // assert if rd is valid
+        hlt = MEMWB.ctrl.halt;
     end
    
 
     // halt detection
-    logic plsHalt;
-    always @(posedge clk or posedge reset) begin
-        if (reset) 
-            plsHalt <= 1'b0;
-        else if (op_ID == 5'hf) 
-            plsHalt <= 1'b1;
-    end
-    assign hlt = plsHalt;
+   
 endmodule
 
