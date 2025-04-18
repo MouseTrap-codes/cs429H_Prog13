@@ -434,9 +434,11 @@ module tinker_core (
     // ID/EX pipeline register --> bundle all useful values into struct
     typedef struct packed {
         id_ctrl_t ctrl; // control bits for later stages
+        logic [4:0] opcode;
         logic [4:0] rd, rs, rt; // register numbers
         logic [11:0] L; // literal immediate
         logic [31:0] pc; // pc of this instruction for debugging
+        logic [63:0] rsVal;
         logic [63:0] rsVal; // value of rs after register read/forwarding
         logic [63:0] rtVal; // value of rt
     } idex_t;
@@ -447,11 +449,13 @@ module tinker_core (
     // build IDEX_in each cycle
     always @(*) begin
         IDEX_in.ctrl = id_ctrl;
+        IDED_in.opcode = op_ID;
         IDEX_in.rd = rd_ID;
         IDEX_in.rs = rs_ID;
         IDEX_in.rt = rt_ID;
         IDEX_in.L = L_ID;
         IDEX_in.pc = pc_IFID;
+        IDEX_in.rdVal = rf_rdata_rd;
         IDEX_in.rsVal = rf_rdata_rs;
         IDEX_in.rtVal = rf_rdata_rt;
 
@@ -519,8 +523,8 @@ module tinker_core (
     logic [63:0] alu_out_EX;
 
     alu alu (
-        .opcode(op_ID),
-        .rdData(rf_rdata_rd),
+        .opcode(IDEX.opcode),
+        .rdData(IDEX.rdVal),
         .rsData(opA_EX),
         .rtData(opB_EX),
         .L(IDEX.L),
