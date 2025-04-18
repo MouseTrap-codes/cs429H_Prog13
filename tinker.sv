@@ -582,19 +582,19 @@ module tinker_core (
     // interfaces to unficed memory
     always @(*) begin
          mem_we = EXMEM.ctrl.memWrite; // 1 on stores
-        if (EXMEM.ctrl.isJump && EXMEM.opcode == 5'hc) { // CALL instruction
+        if (EXMEM.ctrl.isJump && EXMEM.opcode == 5'hc) begin // CALL instruction
             // For call, store return address at r31-8
             mem_addr_W = EXMEM.aluResult[31:0]; // This should be r31-8 from the ALU
             mem_data_W = EXMEM.rtVal; // Return address to store (pc+4)
-        } else if (EXMEM.opcode == 5'h13) { // Store instruction (mov (rd)(L), rs)
+        end else if (EXMEM.opcode == 5'h13) begin // Store instruction (mov (rd)(L), rs)
             // Address is computed by ALU as rdVal + signext(L)
             mem_addr_W = EXMEM.aluResult[31:0];
             mem_data_W = EXMEM.rtVal; // Value to store comes from rt
-        } else {
+        end else begin
             // Default memory addressing
             mem_addr_W = EXMEM.aluResult[31:0];
             mem_data_W = EXMEM.rtVal;
-        }
+        end
     end
 
     // for loads, memory returns data on same clock
