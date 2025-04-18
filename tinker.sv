@@ -539,9 +539,9 @@ module tinker_core (
 
     // MEM stage --> data memory read/write
     // interfaces to unficed memory
-    assign mem_we = EXMEM.ctrl.memWrite; // 1 on stores
-    assign mem_addr_W = EXMEM.aluResult[31:0]; // byte address
-    assign mem_data_W = EXMEM.rtVal;
+    mem_we = EXMEM.ctrl.memWrite; // 1 on stores
+    mem_addr_W = EXMEM.aluResult[31:0]; // byte address
+    mem_data_W = EXMEM.rtVal;
 
     // for loads, memory returns data on same clock
     logic [63:0] mem_rdata_M; 
