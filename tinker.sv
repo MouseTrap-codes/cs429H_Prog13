@@ -483,9 +483,9 @@ module tinker_core (
         else if (stall) begin
             IDEX <= '0; // bubble (NOP)
         end
-        else if (flush_ID) begin
-            IDEX <= '0; // squash after taken branch
-        end
+        // else if (flush_ID) begin
+        //     IDEX <= '0; // squash after taken branch
+        // end
         else 
             IDEX <= IDEX_in; // normal advance
     end
