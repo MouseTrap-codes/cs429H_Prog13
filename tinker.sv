@@ -128,6 +128,7 @@ module regFile (
     input         reset,
     input  [63:0] data_in,   // Data to write
     input         we,        // Write enable
+    input [4:0]   wrAddr,
     input  [4:0]  rd,        // Write address
     input  [4:0]  rs,        // Read address 1
     input  [4:0]  rt,        // Read address 2
@@ -145,7 +146,7 @@ module regFile (
             registers[31] <= 64'h80000;
         end else begin
             if (we)
-                registers[rd] <= data_in;
+                registers[wrAddr] <= data_in;
         end
     end
     
@@ -309,6 +310,7 @@ module tinker_core (
         .reset(reset),
         .data_in(wb_write_data),
         .we(wb_we),
+        .wrAddr(wb_dest)
         .rd(rd_ID),
         .rs(rs_ID),
         .rt(rt_ID),
@@ -341,7 +343,7 @@ module tinker_core (
             id_ctrl.halt = 1'b1;
         end
 
-        unique case (op_ID)
+         case (op_ID)
         // ALU --> result goes to rd
         5'h18,5'h19,5'h1a,5'h1b,
         5'h1c,5'h1d,
@@ -381,7 +383,7 @@ module tinker_core (
         take_branch_ID = 1'b0;
         branch_target_ID = pc_IFID + 4; 
 
-        unique case (op_ID) 
+        case (op_ID) 
         // br rd : PC = register[rd]
         5'h8: begin
             take_branch_ID = 1'b1;
@@ -506,14 +508,14 @@ module tinker_core (
 
     always @(*) begin
         // select opA
-        unique case (selA)
+        case (selA)
         2'd1: opA_EX = EXMEM.aluResult; // forward from EX/MEM stage
         2'd2: opA_EX = wb_write_data; // forward from MEM/WB stage\
         default: opA_EX = IDEX.rsVal; // from regFile
         endcase
 
         // select opB
-        unique case (selB)
+         case (selB)
         2'd1: opB_EX = EXMEM.aluResult; 
         2'd2: opB_EX = wb_write_data;
         default: opB_EX = IDEX.rtVal;
