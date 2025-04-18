@@ -403,7 +403,7 @@ module tinker_core (
         // brr L : PC = PC + signextend(L) << 0
         5'ha: begin
             take_branch_ID = 1'b1;
-            branch_target_ID = pc_IFID + $signed({{20{L_ID[11]}},L_ID})
+            branch_target_ID = pc_IFID + $signed({{20{L_ID[11]}},L_ID});
         end
 
         // brnz rd, rs : if(rs!=0) PC = register[rd]
