@@ -438,7 +438,7 @@ module tinker_core (
         logic [4:0] rd, rs, rt; // register numbers
         logic [11:0] L; // literal immediate
         logic [31:0] pc; // pc of this instruction for debugging
-        logic [63:0] rsVal;
+        logic [63:0] rdVal;
         logic [63:0] rsVal; // value of rs after register read/forwarding
         logic [63:0] rtVal; // value of rt
     } idex_t;
