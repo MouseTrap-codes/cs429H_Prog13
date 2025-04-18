@@ -1,6 +1,6 @@
 module forward_unit(
     input [4:0] exmem_rd,
-    input exmem_regweite,
+    input exmem_regwrite,
     input [4:0] memwb_rd,
     input memwb_regwrite,
     input [4:0] rs_IDEX,
@@ -16,7 +16,7 @@ module forward_unit(
     always @(*) begin
         // default selections -> take value from register file
         sel_opA = 2'd0;
-        sel_opB = 2'd1;
+        sel_opB = 2'd0;
 
         // opA (rs)
         if (exmem_regwrite && (exmem_rd != 0) && (exmem_rd==rs_IDEX))
@@ -32,9 +32,9 @@ module forward_unit(
     end
 endmodule
 
-// detects load RAW hazad and requests a stall
+// detects load RAW hazard and requests a stall
 module hazard_unit(
-    input logic idex _memRead, // 1 if ID/EX instruciton is a load
+    input logic idex_memRead, // 1 if ID/EX instruciton is a load
     input logic[4:0] idex_rd, // idex dest register
     input logic[4:0] ifid_rs, // rs field of instruction in IF/ID
     input logic[4:0] ifid_rt, // rt field of instruction in IFID
@@ -44,7 +44,7 @@ module hazard_unit(
     // --> stall one cycle because data will only be ready in the MEM stage
     always @(*) begin
         stall = 1'b0;
-        if (idex = memRead && (idex_rd != 0) && ((idex_rd==ifid_rs) || (idex_rd==ifid_rt)))
+        if (idex_memRead && (idex_rd != 0) && ((idex_rd==ifid_rs) || (idex_rd==ifid_rt)))
             stall = 1'b1;
     end
 endmodule
@@ -221,13 +221,12 @@ module fetch(
 endmodule
 
 
-module tinker_core #(
-    parameter PC_RESET_ADDR = 32'h2000;
-){
+module tinker_core (
     input logic clk,
     input logic reset,
     output logic hlt
-};
+);
+    parameter PC_RESET_ADDR = 32'h2000;
     // IF: fetch instruction from memory
     // ID: decode, register read, early branch decision
     // EX: ALU/FPU ops, branch target math
@@ -256,7 +255,7 @@ module tinker_core #(
     reg [63:0] mem_data_W; // data to store
 
     memory memory (
-        .clk(clk).
+        .clk(clk),
         .reset(reset),
         .fetch_addr(pc_F),
         .fetch_instruction(instr_F),
@@ -312,11 +311,11 @@ module tinker_core #(
         .we(wb_we),
         .rd(rd_ID),
         .rs(rs_ID),
-        .rt(rt_ID).
+        .rt(rt_ID),
         .rdOut(rf_rdata_rd),
-        .rsOut(rs_rdata_rs),
+        .rsOut(rf_rdata_rs),
         .rtOut(rf_rdata_rt)
-    )
+    );
 
     // control signal struct
     typedef struct packed {
@@ -434,10 +433,10 @@ module tinker_core #(
         logic [31:0] pc; // pc of this instruction for debugging
         logic [63:0] rsVal; // value of rs after register read/forwarding
         logic [63:0] rtVal; // value of rt
-    } idex_t
+    } idex_t;
 
     idex_t IDEX; // actual pipeline reg
-    idex_t IDEX_in // next cycle value
+    idex_t IDEX_in; // next cycle value
 
     // build IDEX_in each cycle
     always @(*) begin
@@ -478,9 +477,9 @@ module tinker_core #(
         .memwb_regwrite(MEMWB.ctrl.regWrite),
         .rs_IDEX(IDEX.rs),
         .rt_IDEX(IDEX.rt),
-        .se_opA(selA),
+        .sel_opA(selA),
         .sel_opB(selB)
-    )
+    );
 
     // operand multplexers
     logic [63:0] opA_EX; // final opA into ALU
@@ -581,7 +580,7 @@ module tinker_core #(
         if (reset) 
             plsHalt <= 1'b0;
         else if (opID == 5'hf) 
-            plsHalt <= 1'b1'
+            plsHalt <= 1'b1;
     end
     assign hlt = plsHalt;
 endmodule
