@@ -282,8 +282,13 @@ module tinker_core (
             instr_IFID <= 32'h22000000;
         end
         else if (!stall) begin // freeze when hazard unit says so
-            pc_IFID <= pc_F;
-            instr_IFID <= instr_F;
+            if (flush_ID) begin 
+                pc_IFID <= pc_F;
+                instr_IFID <= 32'h22000000;
+            end else begin 
+                pc_IFID <= pc_F;
+                instr_IFID <= instr_F;
+            end
         end
     end
 
@@ -482,9 +487,6 @@ module tinker_core (
             IDEX <= '0; // clear pipeline
         else if (stall) begin
             IDEX <= '0; // bubble (NOP)
-        end
-        else if (flush_ID) begin
-            IDEX <= '0; // squash after taken branch
         end
         else 
             IDEX <= IDEX_in; // normal advance
