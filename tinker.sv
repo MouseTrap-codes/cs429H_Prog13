@@ -611,6 +611,8 @@ module tinker_core (
 
         if (IDEX.opcode == 5'hc) begin
             EXMEM_in.rtVal = IDEX.pc + 32'd4;   // return address
+        end else if (IDEX.opcode == 5'h13) begin
+            EXMEM_in.rtVal = IDEX.rsVAl;
         end
     end
 
