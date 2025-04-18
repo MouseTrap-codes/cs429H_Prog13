@@ -282,8 +282,14 @@ module tinker_core (
             instr_IFID <= 32'h22000000;
         end
         else if (!stall) begin // freeze when hazard unit says so
+            if (take_branch_ID) begin
+                // squash the instruction that wa s just fetched
+                pc_IFID <= 32'b0;
+                instr_IFID <= 32'h22000000; // NOP
+            end else begin
             pc_IFID <= pc_F;
             instr_IFID <= instr_F;
+            end
         end
     end
 
