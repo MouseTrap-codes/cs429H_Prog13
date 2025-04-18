@@ -310,7 +310,7 @@ module tinker_core (
         .reset(reset),
         .data_in(wb_write_data),
         .we(wb_we),
-        .wrAddr(wb_dest)
+        .wrAddr(wb_dest),
         .rd(rd_ID),
         .rs(rs_ID),
         .rt(rt_ID),
