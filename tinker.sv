@@ -567,9 +567,9 @@ module tinker_core (
         EXMEM_in.rdDest = IDEX.rd; // same rd throughout
         EXMEM_in.pc = IDEX.pc;
 
-        if (IDEX.opcode == 5'hc) begin
-            EXMEM_in.rtVal = IDEX.pc + 32'd4;   // return address
-        end
+        // if (IDEX.opcode == 5'hc) begin
+        //     EXMEM_in.rtVal = IDEX.pc + 32'd4;   // return address
+        // end
     end
 
     always @(posedge clk or posedge reset) begin
@@ -582,9 +582,13 @@ module tinker_core (
     // MEM stage --> data memory read/write
     // interfaces to unficed memory
     always @(*) begin
-         mem_we = EXMEM.ctrl.memWrite; // 1 on stores
-        mem_addr_W = EXMEM.aluResult[31:0]; // byte address
+    mem_we = EXMEM.ctrl.memWrite;
+    mem_addr_W = EXMEM.aluResult[31:0];
+    if (EXMEM.ctrl.isJump && EXMEM.ctrl.memWrite) begin
+        mem_data_W = EXMEM.pc + 32'd4;  // store return address now
+    end else begin
         mem_data_W = EXMEM.rtVal;
+    end
     end
 
     // for loads, memory returns data on same clock
