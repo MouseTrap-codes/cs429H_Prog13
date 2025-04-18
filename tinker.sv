@@ -467,30 +467,30 @@ module tinker_core (
 
     // build IDEX_in each cycle
     always @(*) begin
-        IDEX_in.ctrl = id_ctrl;
-        IDEX_in.opcode = op_ID;
-        IDEX_in.rd = rd_ID;
-        IDEX_in.rs = rs_ID;
-        IDEX_in.rt = rt_ID;
-        IDEX_in.L = L_ID;
-        IDEX_in.pc = pc_IFID;
-        IDEX_in.rdVal = rf_rdata_rd;
-        IDEX_in.rsVal = rf_rdata_rs;
-        IDEX_in.rtVal = rf_rdata_rt;
-
-        // hazard stall inserts a bubble --> handled below
+        if (stall) begin
+            // canonical NOP: every bit zero, including memRead
+            IDEX_in = '{default:0};
+        end
+        else begin
+            IDEX_in.ctrl   = id_ctrl;
+            IDEX_in.opcode = op_ID;
+            IDEX_in.rd     = rd_ID;
+            IDEX_in.rs     = rs_ID;
+            IDEX_in.rt     = rt_ID;
+            IDEX_in.L      = L_ID;
+            IDEX_in.pc     = pc_IFID;
+            IDEX_in.rdVal  = rf_rdata_rd;
+            IDEX_in.rsVal  = rf_rdata_rs;
+            IDEX_in.rtVal  = rf_rdata_rt;
+        end
     end
 
     // register update with stall/flushing
     always @(posedge clk or posedge reset) begin
-        if (reset)
-            IDEX <= '0; // clear pipeline
-        else if (stall) begin
-            IDEX <= '0; // bubble (NOP)
-            IDEX.ctrl.memRead <= 1'b0;   // make absolutely sure
-        end
-        else 
-            IDEX <= IDEX_in; // normal advance
+    if (reset)
+        IDEX <= '{default:0};
+    else
+        IDEX <= IDEX_in;
     end
 
     hazard_unit hazard (
