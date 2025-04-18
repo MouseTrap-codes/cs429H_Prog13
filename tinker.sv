@@ -268,7 +268,7 @@ module tinker_core (
 
     // IF/ID pipeline register --> holds values entering ID stage
     reg [31:0] pc_IFID; // pc of fetched instruction
-    reg [31:0] instr_IDIF; // fetched instruction bits
+    reg [31:0] instr_IFID; // fetched instruction bits
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
@@ -322,6 +322,7 @@ module tinker_core (
         logic regWrite; // writeback to regFile in WB stage
         logic memRead; // load instruction in MEM stage
         logic memWrite; // store instruction in MEM stage
+        logic memToReg;
         logic isLoad; // hazard detection
         logic isStore;
         logic isBranch; // early branch decison/flush
@@ -343,7 +344,7 @@ module tinker_core (
         5'h4,5'h5,5'h6,5'h7,
         5'h11,5'h12,5'h14,5'h15,5'h16,5'h17 : begin
             id_ctrl.regWrite = 1;
-            id_ctrl.isFPU = (op_I >= 5'h14 && op_ID <= 5'h17);
+            id_ctrl.isFPU = (op_ID >= 5'h14 && op_ID <= 5'h17);
         end
         
         // load --> mov rd (rs)(L)
@@ -466,6 +467,15 @@ module tinker_core (
             IDEX <= IDEX_in; // normal advance
     end
 
+    hazard_unit hazard (
+        .idex_memRead(IDEX.ctrl.memRead),
+        .idex_rd     (IDEX.rd),
+        .ifid_rs     (rs_ID),
+        .ifid_rt     (rt_ID),
+        .stall       (stall)
+    );
+
+
     // EX --> ALU/FPU, operand forwarding
     // forwarding selection muxes
     logic [1:0] selA, selB; // select codes for opA/opB muxes
@@ -504,7 +514,7 @@ module tinker_core (
     logic [63:0] alu_out_EX;
 
     alu alu (
-        .opcode(IDEX.ctrl.isFPU ? op_ID : op_ID),
+        .opcode(op_ID),
         .rdData(rf_rdata_rd),
         .rsData(opA_EX),
         .rtData(opB_EX),
@@ -533,15 +543,19 @@ module tinker_core (
     end
 
     always @(posedge clk or posedge reset) begin
-        if (reset) EXMEM <= '0;
-        else EXMEM <= EXMEM_in'
+        if (reset) 
+            EXMEM <= '0;
+        else 
+            EXMEM <= EXMEM_in;
     end
 
     // MEM stage --> data memory read/write
     // interfaces to unficed memory
-    mem_we = EXMEM.ctrl.memWrite; // 1 on stores
-    mem_addr_W = EXMEM.aluResult[31:0]; // byte address
-    mem_data_W = EXMEM.rtVal;
+    always @(*) begin
+         mem_we = EXMEM.ctrl.memWrite; // 1 on stores
+        mem_addr_W = EXMEM.aluResult[31:0]; // byte address
+        mem_data_W = EXMEM.rtVal;
+    end
 
     // for loads, memory returns data on same clock
     logic [63:0] mem_rdata_M; 
@@ -571,15 +585,18 @@ module tinker_core (
     end
 
     // WB stage --> choose result and write to register file
-    assign wb_write_data = MEMWB.ctrl.memToReg ? MEMWB.memData : MEMWB.aluResult;
-    assign wb_we = MEMWB.ctrl.regWrite; // assert if rd is valid
+    always @(*) begin
+        wb_write_data = MEMWB.ctrl.memToReg ? MEMWB.memData : MEMWB.aluResult;
+        wb_we = MEMWB.ctrl.regWrite; // assert if rd is valid
+    end
+   
 
     // halt detection
     logic plsHalt;
     always @(posedge clk or posedge reset) begin
         if (reset) 
             plsHalt <= 1'b0;
-        else if (opID == 5'hf) 
+        else if (op_ID == 5'hf) 
             plsHalt <= 1'b1;
     end
     assign hlt = plsHalt;
