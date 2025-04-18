@@ -117,6 +117,11 @@ module alu (
                 res_real = op1 / op2; // divf
                 result = $realtobits(res_real);
             end
+            5'h10: result = rsData + $signed({{52{L[11]}}, L});   // mov rd,(rs)(L)
+            5'h13: result = rdData + $signed({{52{L[11]}}, L});   // mov (rd)(L),rs
+
+            5'h0c: result = rsData - 64'd8;                       // call → push at (r31‑8)
+            5'h0d: result = rsData - 64'd8;                       // return → load  from (r31‑8)
             default: result = 64'b0;
         endcase
     end
@@ -374,7 +379,11 @@ module tinker_core (
 
         // branches/jumps/call/return
         5'h8, 5'h9, 5'hb, 5'ha, 5'he : id_ctrl.isBranch = 1; // unconditional/conditional branch
-        5'hc, 5'hd : id_ctrl.isJump = 1; // call / return
+        5'hc : begin
+            id_ctrl.memWrite = 1'b1;
+            id_ctrl.isJump = 1'b1;
+        end
+        5'hd : id_ctrl.isJump = 1; // call / return
         endcase
     end
 
@@ -555,6 +564,10 @@ module tinker_core (
         EXMEM_in.rtVal = opB_EX; // store value travels here
         EXMEM_in.rdDest = IDEX.rd; // same rd throughout
         EXMEM_in.pc = IDEX.pc;
+
+        if (IDEX.opcode == 5'hc) begin
+            EXMEM_in.rtVal = IDEX.pc + 32'd4;   // return address
+        end
     end
 
     always @(posedge clk or posedge reset) begin
