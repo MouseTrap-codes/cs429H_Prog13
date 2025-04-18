@@ -259,45 +259,6 @@ module tinker_core (
     reg [31:0] mem_addr_W; // address for store
     reg [63:0] mem_data_W; // data to store
 
-    logic        store_we_r;
-    logic [31:0] store_addr_r;
-    logic [63:0] store_data_r;
-
-    always @(posedge clk or posedge reset) begin
-        if (reset) begin
-            store_we_r   <= 1'b0;
-            store_addr_r <= 32'd0;
-            store_data_r <= 64'd0;
-        end else begin
-            // capture EXMEM outputs *one clock earlier*
-            store_we_r   <= EXMEM.ctrl.memWrite;
-            store_addr_r <= EXMEM.aluResult[31:0];
-            store_data_r <= EXMEM.rtVal;
-        end
-    end
-
-    logic        we_d1,  we_d2;
-    logic [31:0] addr_d1,addr_d2;
-    logic [63:0] data_d1,data_d2;
-
-    always @(posedge clk or posedge reset) begin
-        if (reset) begin
-            {we_d1,we_d2} <= 2'b00;
-            addr_d1 <= 0; addr_d2 <= 0;
-            data_d1 <= 0; data_d2 <= 0;
-        end else begin
-            // 1‑cycle pipeline delay
-            we_d1   <= EXMEM.ctrl.memWrite;
-            addr_d1 <= EXMEM.aluResult[31:0];
-            data_d1 <= EXMEM.rtVal;
-
-            // 2‑cycle (stable) copy that the RAM will use
-            we_d2   <= we_d1;
-            addr_d2 <= addr_d1;
-            data_d2 <= data_d1;
-        end
-    end
-
     memory memory (
         .clk(clk),
         .reset(reset),
@@ -305,9 +266,9 @@ module tinker_core (
         .fetch_instruction(instr_F),
         .data_load_addr(mem_addr_W),
         .data_load(dummy_dload),
-        .store_we(we_d2),
-        .store_addr(addr_d2),
-        .store_data(data_d2)
+        .store_we(mem_we),
+        .store_addr(mem_addr_W),
+        .store_data(mem_data_W)
     );
 
     // IF/ID pipeline register --> holds values entering ID stage
@@ -321,14 +282,8 @@ module tinker_core (
             instr_IFID <= 32'h22000000;
         end
         else if (!stall) begin // freeze when hazard unit says so
-            if (take_branch_ID) begin
-                // squash the instruction that wa s just fetched
-                pc_IFID <= 32'b0;
-                instr_IFID <= 32'h22000000; // NOP
-            end else begin
             pc_IFID <= pc_F;
             instr_IFID <= instr_F;
-            end
         end
     end
 
@@ -528,9 +483,9 @@ module tinker_core (
         else if (stall) begin
             IDEX <= '0; // bubble (NOP)
         end
-        // else if (flush_ID) begin
-        //     IDEX <= '0; // squash after taken branch
-        // end
+        else if (flush_ID) begin
+            IDEX <= '0; // squash after taken branch
+        end
         else 
             IDEX <= IDEX_in; // normal advance
     end
@@ -611,8 +566,6 @@ module tinker_core (
 
         if (IDEX.opcode == 5'hc) begin
             EXMEM_in.rtVal = IDEX.pc + 32'd4;   // return address
-        end else if (IDEX.opcode == 5'h13) begin
-            EXMEM_in.rtVal = IDEX.rsVal;
         end
     end
 
@@ -669,4 +622,3 @@ module tinker_core (
     // halt detection
    
 endmodule
-
