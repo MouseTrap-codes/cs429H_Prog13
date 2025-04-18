@@ -426,7 +426,7 @@ module tinker_core (
     assign pc_next = flush_ID ? branch_target_ID : (pc_F + 4);
 
     // ID/EX pipeline register --> bundle all useful values into struct
-    typdef struct packed {
+    typedef struct packed {
         id_ctrl_t ctrl; // control bits for later stages
         logic [4:0] rd, rs, rt; // register numbers
         logic [11:0] L; // literal immediate
