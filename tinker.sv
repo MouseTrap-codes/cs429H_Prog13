@@ -259,6 +259,22 @@ module tinker_core (
     reg [31:0] mem_addr_W; // address for store
     reg [63:0] mem_data_W; // data to store
 
+    logic        store_we_r;
+    logic [31:0] store_addr_r;
+    logic [63:0] store_data_r;
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            store_we_r   <= 1'b0;
+            store_addr_r <= 32'd0;
+            store_data_r <= 64'd0;
+        end else begin
+            // capture EXMEM outputs *one clock earlier*
+            store_we_r   <= EXMEM.ctrl.memWrite;
+            store_addr_r <= EXMEM.aluResult[31:0];
+            store_data_r <= EXMEM.rtVal;
+        end
+    end
 
     memory memory (
         .clk(clk),
@@ -267,9 +283,9 @@ module tinker_core (
         .fetch_instruction(instr_F),
         .data_load_addr(mem_addr_W),
         .data_load(dummy_dload),
-        .store_we(mem_we),
-        .store_addr(mem_addr_W),
-        .store_data(mem_data_W)
+        .store_we(store_we_r),
+        .store_addr(store_addr_r),
+        .store_data(store_data_r)
     );
 
     // IF/ID pipeline register --> holds values entering ID stage
