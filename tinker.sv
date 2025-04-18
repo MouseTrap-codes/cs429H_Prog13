@@ -259,27 +259,17 @@ module tinker_core (
     reg [31:0] mem_addr_W; // address for store
     reg [63:0] mem_data_W; // data to store
 
-    // mem signals so they reach the memory array in the following clock with correct addresses
-    reg        mem_we_r;
-    reg [31:0] mem_addr_r;
-    reg [63:0] mem_data_r;
-
-    always @(posedge clk) begin
-        mem_we_r   <= EXMEM.ctrl.memWrite;        // 1 on stores (incl. CALL push)
-        mem_addr_r <= EXMEM.aluResult[31:0];      // byte address
-        mem_data_r <= EXMEM.rtVal;                // value to write
-    end
 
     memory memory (
         .clk(clk),
         .reset(reset),
         .fetch_addr(pc_F),
         .fetch_instruction(instr_F),
-        .data_load_addr(mem_addr_r),
+        .data_load_addr(mem_addr_W),
         .data_load(dummy_dload),
-        .store_we(mem_we_r),
-        .store_addr(mem_addr_r),
-        .store_data(mem_data_r)
+        .store_we(mem_we),
+        .store_addr(mem_addr_W),
+        .store_data(mem_data_W)
     );
 
     // IF/ID pipeline register --> holds values entering ID stage
@@ -593,6 +583,13 @@ module tinker_core (
             EXMEM <= EXMEM_in;
     end
 
+    // MEM stage --> data memory read/write
+    // interfaces to unficed memory
+    always @(*) begin
+         mem_we = EXMEM.ctrl.memWrite; // 1 on stores
+        mem_addr_W = EXMEM.aluResult[31:0]; // byte address
+        mem_data_W = EXMEM.rtVal;
+    end
 
     // for loads, memory returns data on same clock
     logic [63:0] mem_rdata_M; 
