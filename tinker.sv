@@ -302,8 +302,12 @@ module tinker_core (
     reg [63:0] rf_rdata_rd; // rd value
 
     // writeback channel signals from WB stage
-    reg [63:0] wb_write_data;
-    reg wb_we;
+    logic [4:0]  wb_dest;
+    assign wb_dest      = MEMWB.rdDest;
+    reg [63:0] wb_write_data = MEMWB.ctrl.memToReg
+                       ? MEMWB.memData
+                       : MEMWB.aluResult;
+    reg wb_we = MEMWB.ctrl.regWrite;
 
     regFile reg_file (
         .clk(clk),
