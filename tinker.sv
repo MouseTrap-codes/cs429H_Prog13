@@ -19,15 +19,15 @@ module forward_unit(
         sel_opB = 2'd0;
 
         // opA (rs)
-        if (exmem_regwrite && (exmem_rd != 0) && (exmem_rd==rs_IDEX))
+        if (exmem_regwrite && (exmem_rd == rs_IDEX))
             sel_opA = 2'd1;
-        else if (memwb_regwrite && (memwb_rd != 0) && (memwb_rd == rs_IDEX))
+        else if (memwb_regwrite && (memwb_rd == rs_IDEX))
             sel_opA = 2'd2;
         
         // opB (rt)
-        if (exmem_regwrite && (exmem_rd != 0) && (exmem_rd == rt_IDEX))
+        if (exmem_regwrite && (exmem_rd == rt_IDEX))
             sel_opB = 2'd1;
-        else if (memwb_regwrite && (memwb_rd != 0) && (memwb_rd == rt_IDEX))
+        else if (memwb_regwrite && (memwb_rd == rt_IDEX))
             sel_opB = 2'd2;
     end
 endmodule
@@ -43,9 +43,8 @@ module hazard_unit(
     // if next instruction needs register that will be produced by outstanding load
     // --> stall one cycle because data will only be ready in the MEM stage
     always @(*) begin
-        stall = 1'b0;
-        if (idex_memRead && (idex_rd != 0) && ((idex_rd==ifid_rs) || (idex_rd==ifid_rt)))
-            stall = 1'b1;
+        stall = (idex_memRead &&
+                 ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
     end
 endmodule
 
