@@ -469,7 +469,7 @@ module tinker_core (
     always @(*) begin
         if (stall) begin
             // canonical NOP: every bit zero, including memRead
-            IDEX_in = '{default:0};
+            IDEX_in = '0;
         end
         else begin
             IDEX_in.ctrl   = id_ctrl;
