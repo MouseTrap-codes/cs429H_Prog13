@@ -304,7 +304,7 @@ module tinker_core (
     reg [63:0] wb_write_data;
     reg wb_we;
 
-    regFile regFile (
+    regFile reg_file (
         .clk(clk),
         .reset(reset),
         .data_in(wb_write_data),
