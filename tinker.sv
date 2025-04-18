@@ -1,3 +1,54 @@
+module forward_unit(
+    input [4:0] exmem_rd,
+    input exmem_regweite,
+    input [4:0] memwb_rd,
+    input memwb_regwrite,
+    input [4:0] rs_IDEX,
+    input [4:0] rt_IDEX,
+    output logic[1:0] sel_opA,
+    output logic [1:0] sel_opB
+);
+    // 00 = from regFile, 01 = from EX/MEM, 10 = from MEM/WB
+
+    // choose the most recent value for each operand
+    // prioritize ex/mem over mem/wb
+
+    always @(*) begin
+        // default selections -> take value from register file
+        sel_opA = 2'd0;
+        sel_opB = 2'd1;
+
+        // opA (rs)
+        if (exmem_regwrite && (exmem_rd != 0) && (exmem_rd==rs_IDEX))
+            sel_opA = 2'd1;
+        else if (memwb_regwrite && (memwb_rd != 0) && (memwb_rd == rs_IDEX))
+            sel_opA = 2'd2;
+        
+        // opB (rt)
+        if (exmem_regwrite && (exmem_rd != 0) && (exmem_rd == rt_IDEX))
+            sel_opB = 2'd1;
+        else if (memwb_regwrite && (memwb_rd != 0) && (memwb_rd == rt_IDEX))
+            sel_opB = 2'd2;
+    end
+endmodule
+
+// detects load RAW hazad and requests a stall
+module hazard_unit(
+    input logic idex _memRead, // 1 if ID/EX instruciton is a load
+    input logic[4:0] idex_rd, // idex dest register
+    input logic[4:0] ifid_rs, // rs field of instruction in IF/ID
+    input logic[4:0] ifid_rt, // rt field of instruction in IFID
+    output logic stall
+);
+    // if next instruction needs register that will be produced by outstanding load
+    // --> stall one cycle because data will only be ready in the MEM stage
+    always @(*) begin
+        stall = 1'b0;
+        if (idex = memRead && (idex_rd != 0) && ((idex_rd==ifid_rs) || (idex_rd==ifid_rt)))
+            stall = 1'b1;
+    end
+endmodule
+
 module instruction_decoder(
     input  [31:0] in,       // 32-bit instruction
     output [4:0]  opcode,   // Bits [31:27]
@@ -169,420 +220,369 @@ module fetch(
     assign instruction = fetch_instruction;
 endmodule
 
-module control(
-    input         clk,
-    input         reset,
-    input  [31:0] instruction,
-    input  [31:0] PC,
-    input  [63:0] rdData,
-    input  [63:0] rsData,         // Data from regFile port A (rs)
-    input  [63:0] rtData,         // Data from regFile port B ()
-    input  [63:0] data_load,   // Data loaded from memory
-    output reg [31:0] next_PC,
-    output reg [63:0] exec_result,
-    output reg        write_en,
-    // Register file read addresses:
-    output reg[4:0]   rf_addrRd,
-    output reg [4:0]  rf_addrRs,
-    output reg [4:0]  rf_addrRt,
-    // Memory store signals:
-    output reg        mem_we,
-    output reg [31:0] mem_addr,
-    output reg [63:0] mem_write_data,
-    // Data load address for load instructions:
-    output reg [31:0] data_load_addr,
-    // halt
-    output reg hlt
-);
-    // multicycle stuff
-    // enum list of states
-    typedef enum logic [2:0] {
-    FETCH          = 3'd0,
-    DECODE         = 3'd1,
-    ALU            = 3'd2,
-    L_S            = 3'd3,
-    REGISTER_WRITE = 3'd4,
-    HALT = 3'd5
-    } state_t;
-    
-    state_t curr_state, next_state;
 
-    reg [31:0] IR; // latches fetched instruction
-    reg [63:0] ALU_output; // hold ALU output for access across cycles
-
-    reg halt_detected;
-    // for two of the brr stuff
-    reg [31:0] jump_target;
-    reg jump_pending;
-
-    // for the one memory thing that won't work
-    reg [63:0] mem_data_latched;
-
-    
-    // update state and halt detection
-    always @(posedge clk or posedge reset) begin
-        if (reset) begin
-            curr_state <= FETCH;
-            IR <= 32'd0;
-            halt_detected <= 1'b0;
-            jump_target <= 32'd0;
-            jump_pending <= 1'b0;
-        end else begin
-            curr_state <= next_state;
-            if (curr_state == FETCH)
-                IR <= instruction;
-            
-            if (curr_state == ALU)
-                ALU_output <= alu_out;
-            
-            if (curr_state == L_S && opcode == 5'h10)
-                mem_data_latched <= data_load;
-            
-            // once halt is detected, keep it set
-            if (curr_state == DECODE && opcode == 5'hf)
-                halt_detected <= 1'b1;
-
-            // latch jump target 
-            if (curr_state == DECODE && (opcode == 5'ha || opcode == 5'h9 || opcode == 5'hc)) begin
-                case (opcode)
-                5'ha: jump_target <= PC + $signed({{52{L[11]}}, L});
-                5'h9: jump_target <= PC + rdData[31:0];
-                5'hc: jump_target <= rdData; // for call
-                endcase
-                jump_pending <= 1'b1;
-            end else begin
-                jump_pending <= 1'b0;
-            end
-        end
-    end
-
-
-    // Decode the instruction.
-    wire [4:0] opcode, rd, rs, rt;
-    wire [11:0] L;
-    instruction_decoder dec (
-       .in(IR),
-       .opcode(opcode),
-       .rd(rd),
-       .rs(rs),
-       .rt(rt),
-       .L(L)
-    );
-
-    
-    // Instantiate ALU and FPU.
-    wire [63:0] alu_out;
-    alu alu_inst (
-       .opcode(opcode),
-       .rdData(rdData),
-       .rsData(rsData),
-       .rtData(rtData),
-       .L(L),
-       .result(alu_out)
-    );
-    
-
-   
-    
-    // Set register file read addresses.
-    // Default: use rs for opA and rt for opB.
-    // Then override for specific opcodes.
-    always @(*) begin
-        // to account for call and return
-        if (opcode == 5'hc || opcode == 5'hd)
-            rf_addrRs = 5'd31;
-        else
-            rf_addrRs = rs;
-
-         rf_addrRd = rd;
-         rf_addrRt = rt;
-    end
-
-   
-
-    // Main control logic.
-    always @(*) begin
-         // Default assignments.
-         next_state = curr_state; // hold next_state until curr_state ends
-         next_PC         = PC + 4;
-         exec_result     = 64'b0;
-         write_en        = 1'b0;
-         mem_we          = 1'b0;
-         mem_addr        = 32'b0;
-         mem_write_data  = 64'b0;
-         data_load_addr  = 32'b0;
-         hlt = halt_detected;
-
-         if (hlt == 1'b1) begin
-            curr_state = HALT;
-         end 
-
-
-         case (curr_state) 
-         FETCH: begin
-            if (opcode == 5'hf) begin
-                hlt = 1'b1;
-                next_PC = PC;
-                next_state = HALT;
-            end else if (jump_pending) begin
-                next_PC = jump_target;
-                jump_pending = 0;
-                next_state = DECODE; // resume after jump
-            end else begin
-                next_PC = PC + 4;
-                next_state = DECODE;
-            end
-         end 
-
-         DECODE: begin
-            if (opcode ==  5'h18 || opcode == 5'h1a || opcode == 5'h1c || opcode == 5'h1d
-            || opcode == 5'h0 || opcode == 5'h1 || opcode == 5'h2 || opcode == 5'h3
-            || opcode == 5'h4 || opcode == 5'h6 ||
-                opcode == 5'h19 || opcode == 5'h1b || opcode == 5'h5
-                || opcode == 5'h7 || opcode == 5'h12 || opcode == 5'h14
-                || opcode == 5'h15 || opcode == 5'h16 || opcode == 5'h17
-                || opcode == 5'h11) begin
-                    next_state = ALU;
-                end  else if (opcode == 5'h10 || opcode == 5'h13) begin
-                    next_state = L_S;
-                end 
-            else if (opcode == 5'hf) begin
-                hlt = 1'b1;
-                next_PC = PC;
-                next_state = HALT;
-            end
-
-             // Branch instructions:// Branch instructions:
-            else if (opcode == 5'h8) begin // br rd: PC = register[rd]
-                next_PC = rdData; 
-                next_state = FETCH;
-            end
-            else if (opcode == 5'h9) begin // brr rd: PC = PC + register[rd]
-                //next_PC = PC + rdData[31:0];
-                next_state = FETCH;
-            end
-            else if (opcode == 5'ha) begin // brr L: PC = PC + sign-extended L
-                jump_target = PC + $signed({{52{L[11]}}, L});
-                jump_pending = 1;
-                next_state = FETCH;
-            end
-            else if (opcode == 5'hb) begin // brnz rd, rs: if (register[rs] != 0) then PC = register[rd]
-                if (rsData != 0)
-                    next_PC = rdData; // opB = register rd
-                else
-                    next_PC = PC + 4;
-                next_state = FETCH;
-            end
-            else if (opcode == 5'hc) begin // call rd, rs, rt:
-                mem_we         = 1'b1;
-                mem_addr       = rsData - 8;  // opB = register 31
-                mem_write_data = PC;
-                next_PC        = rdData;      // opA = register rd
-                next_state = FETCH;
-            end
-            else if (opcode == 5'hd) begin // return:
-                // For return, read r31 and then set load address to (r31 - 8)
-                data_load_addr = rsData - 8;  // opA = register 31
-                next_PC        = data_load[31:0];
-                next_state = FETCH;
-            end
-            else if (opcode == 5'he) begin // brgt rd, rs, rt: if (register[rs] > register[rt]) then PC = register[rd]
-                if ($signed(rsData) > $signed(rtData))
-                    next_PC = rdData; // opB = register rd (after override)
-                else
-                    next_PC = PC + 4;
-                next_state = FETCH;
-            end
-        end
-       
-       ALU: begin
-        // for arithmetic instructions:
-        if (opcode ==  5'h18 || opcode == 5'h1a || opcode == 5'h1c || opcode == 5'h1d
-         || opcode == 5'h0 || opcode == 5'h1 || opcode == 5'h2 || opcode == 5'h3
-         || opcode == 5'h4 || opcode == 5'h6 ||
-            opcode == 5'h19 || opcode == 5'h1b || opcode == 5'h5
-            || opcode == 5'h7 || opcode == 5'h12 || opcode == 5'h14
-            || opcode == 5'h15 || opcode == 5'h16 || opcode == 5'h17) begin
-                next_state = REGISTER_WRITE;
-        end 
-
-        else if (opcode == 5'h11) begin // mov rd, rs: move register.
-                exec_result = rsData;
-                next_state = REGISTER_WRITE;
-            end
-        end
-
-        L_S: begin
-        if (opcode == 5'h10) begin // mov rd, (rs)(L): load 64-bit word from memory.
-                data_load_addr = rsData + {20'b0, L}; // opA = register rs
-                // exec_result    = data_load;
-                next_state = REGISTER_WRITE;
-            end
-        
-         else if (opcode == 5'h13) begin // mov (rd)(L), rs: store 64-bit word.
-                mem_we         = 1'b1;
-                mem_addr       = rdData + {20'b0, L}; // opA = register rd (base)
-                mem_write_data = rsData;             // opB = register rs (value)
-                next_state = FETCH;
-            end
-        end
-
-        REGISTER_WRITE: begin
-            if (opcode == 5'h10) begin
-                // this is a memory load. write the memory data we latched earlier
-                exec_result = mem_data_latched;
-            end 
-            else begin
-                exec_result = ALU_output; // latched!!!
-            end
-            write_en = 1'b1;
-            next_state = FETCH;
-        end
-        
-        // plsplspls halt
-        HALT: begin
-            hlt = 1'b1;
-            next_PC = PC;   // don't advance
-            next_state = HALT; // remain forever
-        end
-        
-        endcase
-    end
-endmodule
-
-//---------------------------------------------------------------------
-// tinker_core Module (Top Level)
-//---------------------------------------------------------------------
-module tinker_core(
-    input clk,
-    input reset,
+module tinker_core #(
+    parameter PC_RESET_ADDR = 32'h2000;
+){
+    input logic clk,
+    input logic reset,
     output logic hlt
-);
+};
+    // IF: fetch instruction from memory
+    // ID: decode, register read, early branch decision
+    // EX: ALU/FPU ops, branch target math
+    // MEM: data memory access
+    // WB: register writeback
 
-    
-    
-    // Program Counter (PC) register.
-    reg [31:0] PC;
-    
-    // Instantiate memory module.
-    // Instance name is "memory" (as expected by the testbench).
-    wire [31:0] fetch_instruction;
-    wire [63:0] data_load;
-    wire [31:0] mem_data_load_addr;
-    wire        mem_we;
-    wire [31:0] mem_store_addr;
-    wire [63:0] mem_store_data;
-    
-    memory memory (
-        .clk(clk),
-        .reset(reset),
-        .fetch_addr(PC),
-        .fetch_instruction(fetch_instruction),
-        .data_load_addr(mem_data_load_addr),
-        .data_load(data_load),
-        .store_we(mem_we),
-        .store_addr(mem_store_addr),
-        .store_data(mem_store_data)
-    );
-    
-    // Instantiate fetch module.
-    wire [31:0] instruction;
-    fetch fetch_inst (
-        .PC(PC),
-        .fetch_instruction(fetch_instruction),
-        .instruction(instruction)
-    );
-    
-    // Instantiate register file (instance name: reg_file).
-    wire [4:0]  rfAddrRd;
-    wire [4:0]  rfAddrRs;
-    wire [4:0]  rfAddrRt;
-    wire [63:0] rdData, rsData, rtData;
-    reg  [63:0] write_data;
-    reg         write_en;
-    
-    regFile reg_file (
-        .clk(clk),
-        .reset(reset),
-        .data_in(write_data),
-        .we(write_en),
-        .rd(rfAddrRd),
-        .rs(rfAddrRs),
-        .rt(rfAddrRt),
-        .rdOut(rdData),
-        .rsOut(rsData),
-        .rtOut(rtData)
-    );
-    
-    // Instantiate control module.
-    wire [31:0] next_PC;
-    wire [63:0] exec_result;
-    wire        ctrl_write_en;
-    wire [4:0]  ctrl_rfAddrRd, ctrl_rfAddrRs, ctrl_rfAddrRt;
-    wire        ctrl_mem_we;
-    wire [31:0] ctrl_mem_addr;
-    wire [63:0] ctrl_mem_write_data;
-    wire [31:0] ctrl_data_load_addr;
+    // IF stage -> program counter + instruction fetch
+    reg [31:0] pc_F; // pc value in IF
+    reg [31:0] pc_next; // pc after selection mux
 
-    wire ctrl_hlt;
-    
-    control ctrl_inst (
-        .clk(clk),
-        .reset(reset),
-        .instruction(instruction),
-        .PC(PC),
-        .rdData(rdData),
-        .rsData(rsData),
-        .rtData(rtData),
-        .data_load(data_load),
-        .next_PC(next_PC),
-        .exec_result(exec_result),
-        .write_en(ctrl_write_en),
-        .rf_addrRd(ctrl_rfAddrRd),
-        .rf_addrRs(ctrl_rfAddrRs),
-        .rf_addrRt(ctrl_rfAddrRt),
-        .mem_we(ctrl_mem_we),
-        .mem_addr(ctrl_mem_addr),
-        .mem_write_data(ctrl_mem_write_data),
-        .data_load_addr(ctrl_data_load_addr),
-        .hlt(ctrl_hlt)
-    );
-
-    reg plsHaltIBegU;
-
-
+    // update pc each cycle unless stalling
+    // stall freezes both IF and ID so pc does not change
+    logic stall;
     always @(posedge clk or posedge reset) begin
         if (reset)
-            plsHaltIBegU <= 1'd0;
-        else if (ctrl_hlt) 
-            plsHaltIBegU <= 1'd1;
+            pc_F <= PC_RESET_ADDR; // start address after reset
+        else if (!stall) 
+            pc_F <= pc_next; // normal sequence
     end
 
+    // instruction memory port for fetch
+    reg [31:0] instr_F; // instructed fetched in IF
+    reg [63:0] dummy_dload; // unused in IF
+    reg mem_we; // in MEM for stores
+    reg [31:0] mem_addr_W; // address for store
+    reg [63:0] mem_data_W; // data to store
 
-    // latch hlt 
-    assign hlt = plsHaltIBegU || ctrl_hlt;
-    
-    // Connect control outputs to register file and memory.
-    assign rfAddrRd = ctrl_rfAddrRd;
-    assign rfAddrRs = ctrl_rfAddrRs;
-    assign rfAddrRt = ctrl_rfAddrRt;
-    
-    always @(*) begin
-        write_data = exec_result;
-        write_en   = ctrl_write_en;
-    end
-    
-    assign mem_we             = ctrl_mem_we;
-    assign mem_store_addr     = ctrl_mem_addr;
-    assign mem_store_data     = ctrl_mem_write_data;
-    assign mem_data_load_addr = ctrl_data_load_addr;
-    
-    // PC update.
-    always @(posedge clk) begin
+    memory memory (
+        .clk(clk).
+        .reset(reset),
+        .fetch_addr(pc_F),
+        .fetch_instruction(instr_F),
+        .data_load_addr(mem_addr_W),
+        .data_load(dummy_dload),
+        .store_we(mem_we),
+        .store_addr(mem_addr_W),
+        .store_data(mem_data_W)
+    );
+
+    // IF/ID pipeline register --> holds values entering ID stage
+    reg [31:0] pc_IFID; // pc of fetched instruction
+    reg [31:0] instr_IDIF; // fetched instruction bits
+
+    always @(posedge clk or posedge reset) begin
         if (reset) begin
-            PC <= 32'h2000;
-        end else if (!hlt) begin 
-            PC <= next_PC;
+            pc_IFID <= 1'b0;
+            // NOP encoding --> mov r0 r0 (opcode 0x11, rd=rs=rt=0)
+            instr_IFID <= 32'h22000000;
+        end
+        else if (!stall) begin // freeze when hazard unit says so
+            pc_IFID <= pc_F;
+            instr_IFID <= instr_F;
         end
     end
+
+    // ID stage --> decode, register reads, early branch evaluation
+    reg [4:0] op_ID, rd_ID, rs_ID, rt_ID; // decode instruction fields
+    reg [11:0] L_ID; // 12-bit literal
+
+    instruction_decoder decode (
+        .in(instr_IFID),
+        .opcode(op_ID),
+        .rd(rd_ID),
+        .rs(rs_ID),
+        .rt(rt_ID),
+        .L(L_ID)
+    );
+
+    // register read file ports
+    reg [63:0] rf_rdata_rs; // rs value
+    reg [63:0] rf_rdata_rt; // rt value
+    reg [63:0] rf_rdata_rd; // rd value
+
+    // writeback channel signals from WB stage
+    reg [63:0] wb_write_data;
+    reg wb_we;
+
+    regFile regFile (
+        .clk(clk),
+        .reset(reset),
+        .data_in(wb_write_data),
+        .we(wb_we),
+        .rd(rd_ID),
+        .rs(rs_ID),
+        .rt(rt_ID).
+        .rdOut(rf_rdata_rd),
+        .rsOut(rs_rdata_rs),
+        .rtOut(rf_rdata_rt)
+    )
+
+    // control signal struct
+    typedef struct packed {
+        logic regWrite; // writeback to regFile in WB stage
+        logic memRead; // load instruction in MEM stage
+        logic memWrite; // store instruction in MEM stage
+        logic isLoad; // hazard detection
+        logic isStore;
+        logic isBranch; // early branch decison/flush
+        logic isJump; // call/return
+        logic isFPU; // is floating point op?
+    } id_ctrl_t;
+
+    id_ctrl_t id_ctrl; // control bundle produced in ID
+
+    always @(*) begin
+        // preset all bits to 0
+        id_ctrl = '0;
+
+        unique case (op_ID)
+        // ALU --> result goes to rd
+        5'h18,5'h19,5'h1a,5'h1b,
+        5'h1c,5'h1d,
+        5'h0,5'h1,5'h2,5'h3,
+        5'h4,5'h5,5'h6,5'h7,
+        5'h11,5'h12,5'h14,5'h15,5'h16,5'h17 : begin
+            id_ctrl.regWrite = 1;
+            id_ctrl.isFPU = (op_I >= 5'h14 && op_ID <= 5'h17);
+        end
+        
+        // load --> mov rd (rs)(L)
+        5'h10: begin
+            id_ctrl.regWrite = 1;
+            id_ctrl.memRead = 1;
+            id_ctrl.memToReg = 1;
+            id_ctrl.isLoad = 1;
+        end
+
+        // store --> mov (rd)(L), rs
+        5'h13: begin
+            id_ctrl.memWrite = 1;
+            id_ctrl.isStore = 1;
+        end
+
+        // branches/jumps/call/return
+        5'h8, 5'h9, 5'hb, 5'ha, 5'he : id_ctrl.isBranch = 1; // unconditional/conditional branch
+        5'hc, 5'hd : id_ctrl.isJump = 1; // call / return
+        endcase
+    end
+
+    // early branch/jump decision still in ID
+    logic take_branch_ID; // 1 --> branch is taken this cycle
+    logic [31:0] branch_target_ID; // next PC when branch is taken
+
+    always @(*) begin
+        // default not taken --> next pc = pc + 4
+        take_branch_ID = 1'b0;
+        branch_target_ID = pc_IFID + 4; 
+
+        unique case (op_ID) 
+        // br rd : PC = register[rd]
+        5'h8: begin
+            take_branch_ID = 1'b1;
+            branch_target_ID = rf_rdata_rd;
+        end
+
+        // brr rd : PC = PC + register[rd]
+        5'h9: begin
+            take_branch_ID = 1'b1;
+            branch_target_ID = pc_IFID + rf_rdata_rd[31:0];
+        end
+
+        // brr L : PC = PC + signextend(L) << 0
+        5'ha: begin
+            take_branch_ID = 1'b1;
+            branch_target_ID = pc_IFID + $signed({ {20{L_ID[11]}}, L_ID, 2'b00 });
+        end
+
+        // brnz rd, rs : if(rs!=0) PC = register[rd]
+        5'hb: if (rf_rdata_rs != 0) begin
+            take_branch_ID = 1'b1;
+            branch_target_ID = rf_rdata_rd;
+        end
+
+        // brgt rd, rs, rt: if (rs >rt), _C = register[rd]
+        5'he: if ($signed(rf_rdata_rs) > $signed(rf_rdata_rt)) begin
+            take_branch_ID = 1'b1;
+            branch_target_ID = rf_rdata_rd;
+        end
+
+        // call rd, rs, rt : push returnAddr, jump to rd
+        5'hc: begin
+            take_branch_ID = 1'b1;
+            branch_target_ID = rf_rdata_rd; // subroutine target
+        end
+
+        // return: jump to address in r31 (rs)
+        5'hd: begin
+            take_branch_ID = 1'b1;
+            branch_target_ID = rf_rdata_rs;
+        end
+        endcase
+    end
+
+    // pc selection/pipeline flush
+    logic flush_ID; // 1 --> squash instruction in IF and ID
+    assign flush_ID = take_branch_ID;
+    assign pc_next = flush_ID ? branch_target_ID : (pc_F + 4);
+
+    // ID/EX pipeline register --> bundle all useful values into struct
+    typdef struct packed {
+        id_ctrl_t ctrl; // control bits for later stages
+        logic [4:0] rd, rs, rt; // register numbers
+        logic [11:0] L; // literal immediate
+        logic [31:0] pc; // pc of this instruction for debugging
+        logic [63:0] rsVal; // value of rs after register read/forwarding
+        logic [63:0] rtVal; // value of rt
+    } idex_t
+
+    idex_t IDEX; // actual pipeline reg
+    idex_t IDEX_in // next cycle value
+
+    // build IDEX_in each cycle
+    always @(*) begin
+        IDEX_in.ctrl = id_ctrl;
+        IDEX_in.rd = rd_ID;
+        IDEX_in.rs = rs_ID;
+        IDEX_in.rt = rt_ID;
+        IDEX_in.L = L_ID;
+        IDEX_in.pc = pc_IFID;
+        IDEX_in.rsVal = rf_rdata_rs;
+        IDEX_in.rtVal = rf_rdata_rt;
+
+        // hazard stall inserts a bubble --> handled below
+    end
+
+    // register update with stall/flushing
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            IDEX <= '0; // clear pipeline
+        else if (stall) begin
+            IDEX <= '0; // bubble (NOP)
+        end
+        else if (flush_ID) begin
+            IDEX <= '0; // squash after taken branch
+        end
+        else 
+            IDEX <= IDEX_in; // normal advance
+    end
+
+    // EX --> ALU/FPU, operand forwarding
+    // forwarding selection muxes
+    logic [1:0] selA, selB; // select codes for opA/opB muxes
+
+    forward_unit fwd (
+        .exmem_rd(EXMEM.rdDest),
+        .exmem_regwrite(EXMEM.ctrl.regWrite),
+        .memwb_rd(MEMWB.rdDest),
+        .memwb_regwrite(MEMWB.ctrl.regWrite),
+        .rs_IDEX(IDEX.rs),
+        .rt_IDEX(IDEX.rt),
+        .se_opA(selA),
+        .sel_opB(selB)
+    )
+
+    // operand multplexers
+    logic [63:0] opA_EX; // final opA into ALU
+    logic [63:0] opB_EX; // final opB into ALU
+
+    always @(*) begin
+        // select opA
+        unique case (selA)
+        2'd1: opA_EX = EXMEM.aluResult; // forward from EX/MEM stage
+        2'd2: opA_EX = wb_write_data; // forward from MEM/WB stage\
+        default: opA_EX = IDEX.rsVal; // from regFile
+        endcase
+
+        // select opB
+        unique case (selB)
+        2'd1: opB_EX = EXMEM.aluResult; 
+        2'd2: opB_EX = wb_write_data;
+        default: opB_EX = IDEX.rtVal;
+        endcase
+    end
+    // ALU
+    logic [63:0] alu_out_EX;
+
+    alu alu (
+        .opcode(IDEX.ctrl.isFPU ? op_ID : op_ID),
+        .rdData(rf_rdata_rd),
+        .rsData(opA_EX),
+        .rtData(opB_EX),
+        .L(IDEX.L),
+        .result(alu_out_EX)
+    );
+
+    // EX/MEM pipeline register --> carries results into MEM stage
+    typedef struct packed {
+        id_ctrl_t ctrl; // control bits for MEM/WB
+        logic [63:0] aluResult; // ALU/FPU output
+        logic [63:0] rtVal; // value to store 
+        logic [4:0] rdDest; // destination register number
+        logic [31:0] pc; // debug / tracing
+    } exmem_t;
+
+    exmem_t EXMEM; // actual pipeline register
+    exmem_t EXMEM_in; // computed next value;
+
+    always @(*) begin
+        EXMEM_in.ctrl = IDEX.ctrl;
+        EXMEM_in.aluResult = alu_out_EX;
+        EXMEM_in.rtVal = opB_EX; // store value travels here
+        EXMEM_in.rdDest = IDEX.rd; // same rd throughout
+        EXMEM_in.pc = IDEX.pc;
+    end
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) EXMEM <= '0;
+        else EXMEM <= EXMEM_in'
+    end
+
+    // MEM stage --> data memory read/write
+    // interfaces to unficed memory
+    assign mem_we = EXMEM.ctrl.memWrite; // 1 on stores
+    assign mem_addr_W = EXMEM.aluResult[31:0]; // byte address
+    assign mem_data_W = EXMEM.rtVal;
+
+    // for loads, memory returns data on same clock
+    logic [63:0] mem_rdata_M; 
+    assign mem_rdata_M = dummy_dload;
+
+    // MEM/WB pipeline register --> final stage before writeback
+    typedef struct packed {
+        id_ctrl_t ctrl;
+        logic [63:0] memData; // data loaded from memory if load
+        logic [63:0] aluResult; // ALU result if not load
+        logic [4:0] rdDest; // destination register number
+    } memwb_t;
+
+    memwb_t MEMWB;
+    memwb_t MEMWB_in;
+
+    always @(*) begin
+        MEMWB_in.ctrl = EXMEM.ctrl;
+        MEMWB_in.memData = mem_rdata_M; // valid if load
+        MEMWB_in.aluResult = EXMEM.aluResult; // valid otherwise
+        MEMWB_in.rdDest = EXMEM.rdDest;
+    end
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) MEMWB <= '0;
+        else MEMWB <= MEMWB_in;
+    end
+
+    // WB stage --> choose result and write to register file
+    assign wb_write_data = MEMWB.ctrl.memToReg ? MEMWB.memData : MEMWB.aluResult;
+    assign wb_we = MEMWB.ctrl.regWrite; // assert if rd is valid
+
+    // halt detection
+    logic plsHalt;
+    always @(posedge clk or posedge reset) begin
+        if (reset) 
+            plsHalt <= 1'b0;
+        else if (opID == 5'hf) 
+            plsHalt <= 1'b1'
+    end
+    assign hlt = plsHalt;
 endmodule
+
