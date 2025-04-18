@@ -449,7 +449,7 @@ module tinker_core (
     // build IDEX_in each cycle
     always @(*) begin
         IDEX_in.ctrl = id_ctrl;
-        IDED_in.opcode = op_ID;
+        IDEX_in.opcode = op_ID;
         IDEX_in.rd = rd_ID;
         IDEX_in.rs = rs_ID;
         IDEX_in.rt = rt_ID;
