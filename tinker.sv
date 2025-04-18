@@ -19,15 +19,15 @@ module forward_unit(
         sel_opB = 2'd0;
 
         // opA (rs)
-        if (exmem_regwrite && (exmem_rd == rs_IDEX) && (exmem_rd != 0))
+        if (exmem_regwrite && (exmem_rd == rs_IDEX))
             sel_opA = 2'd1;
-        else if (memwb_regwrite && (memwb_rd == rs_IDEX) && (memwb_rd != 0))
+        else if (memwb_regwrite && (memwb_rd == rs_IDEX))
             sel_opA = 2'd2;
         
         // opB (rt)
-        if (exmem_regwrite && (exmem_rd == rt_IDEX) && (exmem_rd != 0))
+        if (exmem_regwrite && (exmem_rd == rt_IDEX))
             sel_opB = 2'd1;
-        else if (memwb_regwrite && (memwb_rd == rt_IDEX) && (memwb_rd != 0))
+        else if (memwb_regwrite && (memwb_rd == rt_IDEX))
             sel_opB = 2'd2;
     end
 endmodule
@@ -119,10 +119,8 @@ module alu (
             5'h10: result = rsData + $signed({{52{L[11]}}, L});   // mov rd,(rs)(L)
             5'h13: result = rdData + $signed({{52{L[11]}}, L});   // mov (rd)(L),rs
 
-            // FIX: Calculate the correct offset for call instruction
             5'h0c: result = rsData - 64'd8;                       // call → push at (r31‑8)
-            // FIX: Adjust return instruction to load from the correct address
-            5'h0d: result = rsData - 64'd8;                       // return → load from (r31‑8)
+            5'h0d: result = rsData - 64'd8;                       // return → load  from (r31‑8)
             default: result = 64'b0;
         endcase
     end
@@ -151,7 +149,7 @@ module regFile (
                 registers[i] <= 64'b0;
             registers[31] <= 64'h80000;
         end else begin
-            if (we && wrAddr != 5'b0)
+            if (we)
                 registers[wrAddr] <= data_in;
         end
     end
@@ -184,20 +182,21 @@ module memory(
     
     always @(posedge clk) begin
         if (reset) begin
-            // FIX: Initialize memory
         end
         if (store_we) begin
-            bytes[store_addr+7] <= store_data[63:56];
+            
+            bytes[store_addr+7]     <= store_data[63:56];
             bytes[store_addr+6] <= store_data[55:48];
             bytes[store_addr+5] <= store_data[47:40];
             bytes[store_addr+4] <= store_data[39:32];
             bytes[store_addr+3] <= store_data[31:24];
             bytes[store_addr+2] <= store_data[23:16];
             bytes[store_addr+1] <= store_data[15:8];
-            bytes[store_addr]   <= store_data[7:0];
+            bytes[store_addr] <= store_data[7:0];
         end
     end
     
+
     assign fetch_instruction = { 
         bytes[fetch_addr+3],
         bytes[fetch_addr+2],
@@ -255,19 +254,18 @@ module tinker_core (
 
     // instruction memory port for fetch
     reg [31:0] instr_F; // instructed fetched in IF
-    reg [63:0] data_load; // Data from memory
+    reg [63:0] dummy_dload; // unused in IF
     reg mem_we; // in MEM for stores
     reg [31:0] mem_addr_W; // address for store
     reg [63:0] mem_data_W; // data to store
 
-    // FIX: Fix the memory module connections
     memory memory (
         .clk(clk),
         .reset(reset),
         .fetch_addr(pc_F),
         .fetch_instruction(instr_F),
         .data_load_addr(mem_addr_W),
-        .data_load(data_load),
+        .data_load(dummy_dload),
         .store_we(mem_we),
         .store_addr(mem_addr_W),
         .store_data(mem_data_W)
@@ -314,16 +312,11 @@ module tinker_core (
 
     // writeback channel signals from WB stage
     logic [4:0]  wb_dest;
-    assign wb_dest = MEMWB.rdDest;
-    reg [63:0] wb_write_data;
-    
-    // FIX: Proper mux for writeback data
-    always @(*) begin
-        wb_write_data = MEMWB.ctrl.memToReg ? MEMWB.memData : MEMWB.aluResult;
-    end
-    
-    reg wb_we;
-    assign wb_we = MEMWB.ctrl.regWrite;
+    assign wb_dest      = MEMWB.rdDest;
+    reg [63:0] wb_write_data = MEMWB.ctrl.memToReg
+                       ? MEMWB.memData
+                       : MEMWB.aluResult;
+    reg wb_we = MEMWB.ctrl.regWrite;
 
     regFile reg_file (
         .clk(clk),
@@ -390,20 +383,11 @@ module tinker_core (
 
         // branches/jumps/call/return
         5'h8, 5'h9, 5'hb, 5'ha, 5'he : id_ctrl.isBranch = 1; // unconditional/conditional branch
-        
-        // FIX: Call instruction needs to save return address
         5'hc : begin
+            id_ctrl.memWrite = 1'b1;
             id_ctrl.isJump = 1'b1;
-            id_ctrl.memWrite = 1'b1;  // Write return address to stack
-            id_ctrl.regWrite = 1'b1;  // Jump to target (rd)
         end
-        
-        // FIX: Return instruction needs to load return address
-        5'hd : begin 
-            id_ctrl.isJump = 1'b1;
-            id_ctrl.memRead = 1'b1;   // Read return address from stack
-            id_ctrl.regWrite = 1'b1;  // Update PC
-        end
+        5'hd : id_ctrl.isJump = 1; // call / return
         endcase
     end
 
@@ -541,7 +525,7 @@ module tinker_core (
         // select opA
         case (selA)
         2'd1: opA_EX = EXMEM.aluResult; // forward from EX/MEM stage
-        2'd2: opA_EX = wb_write_data; // forward from MEM/WB stage
+        2'd2: opA_EX = wb_write_data; // forward from MEM/WB stage\
         default: opA_EX = IDEX.rsVal; // from regFile
         endcase
 
@@ -583,7 +567,6 @@ module tinker_core (
         EXMEM_in.rdDest = IDEX.rd; // same rd throughout
         EXMEM_in.pc = IDEX.pc;
 
-        // FIX: Special handling for call instruction
         if (IDEX.opcode == 5'hc) begin
             EXMEM_in.rtVal = IDEX.pc + 32'd4;   // return address
         end
@@ -597,21 +580,16 @@ module tinker_core (
     end
 
     // MEM stage --> data memory read/write
-    // interfaces to unified memory
+    // interfaces to unficed memory
     always @(*) begin
-        mem_we = EXMEM.ctrl.memWrite; // 1 on stores
+         mem_we = EXMEM.ctrl.memWrite; // 1 on stores
         mem_addr_W = EXMEM.aluResult[31:0]; // byte address
-        
-        // FIX: For call instruction, store return address
-        if (EXMEM.ctrl.isJump && EXMEM.ctrl.memWrite) begin
-            mem_data_W = EXMEM.rtVal; // Store return address for call
-        end else if (EXMEM.ctrl.isStore) begin
-            // Regular store instruction: store rs value to memory
-            mem_data_W = EXMEM.rtVal;
-        end else begin
-            mem_data_W = EXMEM.rtVal;
-        end
+        mem_data_W = EXMEM.rtVal;
     end
+
+    // for loads, memory returns data on same clock
+    logic [63:0] mem_rdata_M; 
+    assign mem_rdata_M = dummy_dload;
 
     // MEM/WB pipeline register --> final stage before writeback
     typedef struct packed {
@@ -626,15 +604,9 @@ module tinker_core (
 
     always @(*) begin
         MEMWB_in.ctrl = EXMEM.ctrl;
-        MEMWB_in.memData = data_load; // Valid if load
-        MEMWB_in.aluResult = EXMEM.aluResult; // Valid otherwise
+        MEMWB_in.memData = mem_rdata_M; // valid if load
+        MEMWB_in.aluResult = EXMEM.aluResult; // valid otherwise
         MEMWB_in.rdDest = EXMEM.rdDest;
-        
-        // FIX: For return instruction, use the loaded return address
-        if (EXMEM.ctrl.isJump && EXMEM.ctrl.memRead) begin
-            // Return instruction loads PC from memory
-            MEMWB_in.aluResult = data_load;
-        end
     end
 
     always @(posedge clk or posedge reset) begin
@@ -644,6 +616,12 @@ module tinker_core (
 
     // WB stage --> choose result and write to register file
     always @(*) begin
+        wb_write_data = MEMWB.ctrl.memToReg ? MEMWB.memData : MEMWB.aluResult;
+        wb_we = MEMWB.ctrl.regWrite; // assert if rd is valid
         hlt = MEMWB.ctrl.halt;
     end
+   
+
+    // halt detection
+   
 endmodule
