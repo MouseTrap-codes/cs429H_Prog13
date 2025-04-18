@@ -488,7 +488,7 @@ module tinker_core (
     // register update with stall/flushing
     always @(posedge clk or posedge reset) begin
     if (reset)
-        IDEX <= '{default:0};
+        IDEX <= '0;
     else
         IDEX <= IDEX_in;
     end
