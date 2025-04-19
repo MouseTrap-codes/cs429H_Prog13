@@ -539,12 +539,14 @@ module tinker_core (
     logic [63:0] opA_EX; // final opA into ALU
     logic [63:0] opB_EX; // final opB into ALU
 
+    logic [63:0] rd_val_EX; // forwarded rd value
+
     always @(*) begin
         // select opA
         case (selA)
         2'd1: opA_EX = EXMEM.aluResult; // forward from EX/MEM stage
         2'd2: opA_EX = wb_write_data; // forward from MEM/WB stage\
-        default: opA_EX = IDEX.rsVal; // from regFile
+        default: rd_val_EX = IDEX.rdVal; // from regFiles
         endcase
 
         // select opB
@@ -559,7 +561,7 @@ module tinker_core (
 
     alu alu (
         .opcode(IDEX.opcode),
-        .rdData(IDEX.rdVal),
+        .rdData(rd_val_EX),
         .rsData(opA_EX),
         .rtData(opB_EX),
         .L(IDEX.L),
