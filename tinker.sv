@@ -145,12 +145,12 @@ module regFile (
     
     always @(posedge clk) begin
         if (reset) begin
-            for (i = 0; i < 31; i = i + 1)
-                registers[i] <= 64'b0;
-            registers[31] <= 64'h80000;
-        end else begin
-            if (we)
-                registers[wrAddr] <= data_in;
+            integer i;
+            for (i = 0; i < 32; i = i + 1)
+                registers[i] <= 64'd0;
+            registers[31] <= 64'h0008_0000;   // stack pointer
+        end else if (we) begin
+            registers[wrAddr] <= data_in;
         end
     end
     
