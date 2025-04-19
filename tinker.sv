@@ -460,7 +460,7 @@ module tinker_core (
     // pc selection/pipeline flush
     logic flush_ID; // 1 --> squash instruction in IF and ID
     assign flush_ID = take_branch_ID;
-    assign pc_next = flush_ID ? branch_target_ID : (pc_F + 4);
+    //assign pc_next = flush_ID ? branch_target_ID : (pc_F + 4);
 
     assign pc_next = take_return_M ? ret_addr : flush_ID ? branch_target_ID : pc_F + 4;
 
