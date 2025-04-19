@@ -492,8 +492,11 @@ module tinker_core (
         IDEX_in.L = L_ID;
         IDEX_in.pc = pc_IFID;
         IDEX_in.rdVal = rf_rdata_rd;
-        IDEX_in.rsVal = rf_rdata_rs;
-    IDEX_in.rtVal = rf_rdata_rt;
+        // Manually override rsVal for call → use value of r31
+        if (IDEX.opcode == 5'h0c) begin
+            IDEX_in.rsVal = rf_rdata_rd; // assume rd is r31
+        end
+        IDEX_in.rtVal = rf_rdata_rt;
 
     /* 1‑cycle newer?  Forward from EX/MEM. */
     if (EXMEM.ctrl.regWrite && EXMEM.rdDest == rs_ID)
