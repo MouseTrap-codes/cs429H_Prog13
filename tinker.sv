@@ -283,13 +283,13 @@ module tinker_core (
             instr_IFID <= 32'h22000000;
         end
         else if (!stall) begin // freeze when hazard unit says so
-            if (take_branch_ID) begin
+            if (flush_ID | take_return_M) begin
                 // squash the instruction that wa s just fetched
                 pc_IFID <= 32'b0;
                 instr_IFID <= 32'h22000000; // NOP
             end else begin
-            pc_IFID <= pc_F;
-            instr_IFID <= instr_F;
+                pc_IFID <= pc_F;
+                instr_IFID <= instr_F;
             end
         end
     end
@@ -351,6 +351,7 @@ module tinker_core (
         logic isJump; // call/return
         logic isFPU; // is floating point op?
         logic halt;
+        logic isReturn;
     } id_ctrl_t;
 
     id_ctrl_t id_ctrl; // control bundle produced in ID
@@ -394,7 +395,11 @@ module tinker_core (
             id_ctrl.memWrite = 1'b1;
             id_ctrl.isJump = 1'b1;
         end
-        5'hd : id_ctrl.isJump = 1; // call / return
+        5'hd : begin 
+            id_ctrl.memRead = 1; // call / return
+            id_ctrl.memToReg = 1;
+            id_ctrl.isReturn = 1;
+        end
         endcase
     end
 
@@ -445,10 +450,10 @@ module tinker_core (
         end
 
         // return: jump to address in r31 (rs)
-        5'hd: begin
-            take_branch_ID = 1'b1;
-            branch_target_ID = rf_rdata_rs;
-        end
+        // 5'hd: begin
+        //     take_branch_ID = 1'b1;
+        //     branch_target_ID = rf_rdata_rs;
+        // end
         endcase
     end
 
@@ -456,6 +461,8 @@ module tinker_core (
     logic flush_ID; // 1 --> squash instruction in IF and ID
     assign flush_ID = take_branch_ID;
     assign pc_next = flush_ID ? branch_target_ID : (pc_F + 4);
+
+    assign pc_next = take_return_M ? ret_addr : flush_ID ? branch_target_ID : pc_F + 4;
 
     // ID/EX pipeline register --> bundle all useful values into struct
     typedef struct packed {
@@ -590,8 +597,11 @@ module tinker_core (
 
     // MEM stage --> data memory read/write
     // interfaces to unficed memory
+    wire take_return_M   = EXMEM.ctrl.isReturn;   // asserted exactly 1 cycle before WB
+    wire [31:0] ret_addr = mem_rdata_M[31:0];     // loaded PC
+
     always @(*) begin
-         mem_we = EXMEM.ctrl.memWrite; // 1 on stores
+        mem_we = EXMEM.ctrl.memWrite; // 1 on stores
         mem_addr_W = EXMEM.aluResult[31:0]; // byte address
         mem_data_W = EXMEM.rtVal;
     end
