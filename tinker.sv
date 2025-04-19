@@ -495,6 +495,8 @@ module tinker_core (
         // Manually override rsVal for call → use value of r31
         if (IDEX.opcode == 5'h0c) begin
             IDEX_in.rsVal = rf_rdata_rd; // assume rd is r31
+        end else begin
+            IDEX_in.rsVal = rf_rdata_rs;
         end
         IDEX_in.rtVal = rf_rdata_rt;
 
