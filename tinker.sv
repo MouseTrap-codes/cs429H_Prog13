@@ -45,13 +45,8 @@ module hazard_unit(
     always @(*) begin
         stall = (idex_memRead && ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
         
-        if (idex_regwrite) begin
-            // Check for circular dependencies with same register as src and dest
-            if (ifid_opcode == 5'h18 && // ADD
-                (idex_rd == ifid_rd) && 
-                ((ifid_rd == ifid_rs) || (ifid_rd == ifid_rt))) begin
-                stall = 1'b1;
-            end
+        if (idex_regwrite && idex_rd == ifid_rd && idex_rd == ifid_rs && idex_rd == ifid_rt) begin
+            stall = 1'b1; // Stall if we have consecutive self-dependent operations
         end
     end
 endmodule
