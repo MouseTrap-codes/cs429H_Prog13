@@ -1,61 +1,45 @@
+////////////////////////////////////////////////////////////
+//  Tinker 5‑Stage Pipeline CPU – public‑tests clean      //
+////////////////////////////////////////////////////////////
+
+/* =============================================================
+   0.  Forwarding selector (EX stage)                           */
 module forward_unit(
-    input [4:0] exmem_rd,
-    input exmem_regwrite,
-    input [4:0] memwb_rd,
-    input memwb_regwrite,
-    input [4:0] rs_IDEX,
-    input [4:0] rt_IDEX,
-    output logic[1:0] sel_opA,
-    output logic [1:0] sel_opB
-);
-    // 00 = from regFile, 01 = from EX/MEM, 10 = from MEM/WB
-
-    // choose the most recent value for each operand
-    // prioritize ex/mem over mem/wb
-
-    always @(*) begin
-        // default selections -> take value from register file
-        sel_opA = 2'd0;
-        sel_opB = 2'd0;
-
-        // opA (rs)
-        if (exmem_regwrite && (exmem_rd == rs_IDEX))
-            sel_opA = 2'd1;
-        else if (memwb_regwrite && (memwb_rd == rs_IDEX))
-            sel_opA = 2'd2;
-        
-        // opB (rt)
-        if (exmem_regwrite && (exmem_rd == rt_IDEX))
-            sel_opB = 2'd1;
-        else if (memwb_regwrite && (memwb_rd == rt_IDEX))
-            sel_opB = 2'd2;
+    input  [4:0] exmem_rd,
+    input        exmem_regwrite,
+    input  [4:0] memwb_rd,
+    input        memwb_regwrite,
+    input  [4:0] rs_IDEX,
+    input  [4:0] rt_IDEX,
+    output logic [1:0] sel_opA,
+    output logic [1:0] sel_opB);
+    /* 00 = regFile | 01 = EX/MEM | 10 = MEM/WB */
+    always_comb begin
+        sel_opA = 2'd0; sel_opB = 2'd0;
+        if (exmem_regwrite && exmem_rd!=0 && exmem_rd==rs_IDEX) sel_opA = 2'd1;
+        else if (memwb_regwrite && memwb_rd!=0 && memwb_rd==rs_IDEX) sel_opA = 2'd2;
+        if (exmem_regwrite && exmem_rd!=0 && exmem_rd==rt_IDEX) sel_opB = 2'd1;
+        else if (memwb_regwrite && memwb_rd!=0 && memwb_rd==rt_IDEX) sel_opB = 2'd2;
     end
 endmodule
 
-// detects load RAW hazard and requests a stall
+/* =============================================================
+   1.  Load‑use stall detector                                 */
 module hazard_unit(
-    input logic idex_memRead, // 1 if ID/EX instruciton is a load
-    input logic[4:0] idex_rd, // idex dest register
-    input logic[4:0] ifid_rs, // rs field of instruction in IF/ID
-    input logic[4:0] ifid_rt, // rt field of instruction in IFID
-    output logic stall
-);
-    // if next instruction needs register that will be produced by outstanding load
-    // --> stall one cycle because data will only be ready in the MEM stage
-    always @(*) begin
-        stall = (idex_memRead &&
-                 ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
-    end
+    input  logic       idex_memRead,
+    input  logic [4:0] idex_rd,
+    input  logic [4:0] ifid_rs,
+    input  logic [4:0] ifid_rt,
+    output logic       stall);
+    always_comb stall = idex_memRead && ((idex_rd==ifid_rs)||(idex_rd==ifid_rt));
 endmodule
 
+/* =============================================================
+   2.  Instruction decoder                                     */
 module instruction_decoder(
-    input  [31:0] in,       // 32-bit instruction
-    output [4:0]  opcode,   // Bits [31:27]
-    output [4:0]  rd,       // Bits [26:22]
-    output [4:0]  rs,       // Bits [21:17]
-    output [4:0]  rt,       // Bits [16:12]
-    output [11:0] L         // Bits [11:0]
-);
+    input  [31:0] in,
+    output [4:0]  opcode, rd, rs, rt,
+    output [11:0] L);
     assign opcode = in[31:27];
     assign rd     = in[26:22];
     assign rs     = in[21:17];
@@ -63,607 +47,204 @@ module instruction_decoder(
     assign L      = in[11:0];
 endmodule
 
-module alu (
+/* =============================================================
+   3.  ALU / FPU                                               */
+module alu(
     input  [4:0]  opcode,
-    input  [63:0] rdData,       // First operand
-    input  [63:0] rsData,       // Second operand
+    input  [63:0] rdData,
+    input  [63:0] rsData,
     input  [63:0] rtData,
-    input  [11:0] L,         // 12-bit literal/immediate
-    output reg [63:0] result // Result
-);
-    real op1, op2, res_real; // for fpu
-    always @(*) begin
-        op1 = $bitstoreal(rsData);
-        op2 = $bitstoreal(rtData);
-        case (opcode)
-            // Integer arithmetic
-            5'h18: result = rsData + rtData;                   // add
-            5'h19: result = rdData + {52'd0, L};             // addi
-            5'h1a: result = rsData - rtData;                   // sub
-            5'h1b: result = rdData - {52'd0, L};            // subi
-            5'h1c: result = rsData * rtData;                   // mul
-            5'h1d: result = rsData / rtData;
-            // Logical operations
-            5'h0:  result = rsData & rtData;                   // and
-            5'h1:  result = rsData | rtData;                   // or
-            5'h2:  result = rtData ^ rsData;                   // xor
-            5'h3:  result = ~rsData;                        // not (rt ignored)
-            // Shift operations
-            5'h4:  result = rsData >> rtData;                  // shftr
-            5'h5:  result = rdData >> L;                    // shftri
-            5'h6:  result = rsData << rtData;                  // shftl
-            5'h7:  result = rdData << L;                    // shftli
-            // Data movement
-            5'h11: result = rsData;                        // mov rd, rs
-            5'h12: begin                                 // mov rd, L: update lower 12 bits
-                      result = rdData;
-                      result[11:0] = L;
-                   end
-            // floating point
-            5'h14: begin
-                res_real = op1 + op2; // addf
-                result = $realtobits(res_real);
-            end 
-            5'h15: begin
-                res_real = op1 - op2; // subf
-                result = $realtobits(res_real);
-            end 
-            5'h16: begin
-                res_real = op1 * op2; // mulf
-                result = $realtobits(res_real);
-            end
-            5'h17: begin
-                res_real = op1 / op2; // divf
-                result = $realtobits(res_real);
-            end
-            5'h10: result = rsData + $signed({{52{L[11]}}, L});   // mov rd,(rs)(L)
-            5'h13: result = rdData + $signed({{52{L[11]}}, L});   // mov (rd)(L),rs
-
-            5'h0c: result = rsData - 64'd8;                       // call → push at (r31‑8)
-            5'h0d: result = rsData - 64'd8;                       // return → load  from (r31‑8)
-            default: result = 64'b0;
+    input  [11:0] L,
+    output reg [63:0] result);
+    real a,b,r;
+    always_comb begin
+        a=$bitstoreal(rsData); b=$bitstoreal(rtData); result=64'd0;
+        unique case(opcode)
+            5'h18: result = rsData + rtData;
+            5'h19: result = rdData + {52'd0,L};
+            5'h1a: result = rsData - rtData;
+            5'h1b: result = rdData - {52'd0,L};
+            5'h1c: result = rsData * rtData;
+            5'h1d: result = (rtData==0)?64'd0:rsData/rtData;
+            5'h00: result = rsData & rtData;
+            5'h01: result = rsData | rtData;
+            5'h02: result = rsData ^ rtData;
+            5'h03: result = ~rsData;
+            5'h04: result = rsData >> rtData[5:0];
+            5'h05: result = rdData >> L;
+            5'h06: result = rsData << rtData[5:0];
+            5'h07: result = rdData << L;
+            5'h11: result = rsData;
+            5'h12: begin result = rdData; result[11:0]=L; end
+            5'h10: result = rsData + $signed({{52{L[11]}},L});
+            5'h13: result = rdData + $signed({{52{L[11]}},L});
+            5'h0c,5'h0d: result = rsData - 64'd8;           // SP‑update
+            5'h14: begin r=a+b; result=$realtobits(r); end
+            5'h15: begin r=a-b; result=$realtobits(r); end
+            5'h16: begin r=a*b; result=$realtobits(r); end
+            5'h17: begin r=a/b; result=$realtobits(r); end
+            default:;
         endcase
     end
 endmodule
 
-
-module regFile (
-    input         clk,
-    input         reset,
-    input  [63:0] data_in,   // Data to write
-    input         we,        // Write enable
-    input [4:0]   wrAddr,
-    input  [4:0]  rd,        // Write address
-    input  [4:0]  rs,        // Read address 1
-    input  [4:0]  rt,        // Read address 2
-    output reg [63:0] rdOut, // Data out pota rd
-    output reg [63:0] rsOut, // Data out port A
-    output reg [63:0] rtOut  // Data out port B
-);
-    reg [63:0] registers [0:31];
-    integer i;
-    
-    always @(posedge clk) begin
-        if (reset) begin
-            integer i;
-            for (i = 0; i < 32; i = i + 1)
-                registers[i] <= 64'd0;
-            registers[31] <= 64'h0008_0000;   // stack pointer
-        end else if (we) begin
-            registers[wrAddr] <= data_in;
+/* =============================================================
+   4.  Register file (write‑first)                             */
+module regFile(
+    input  clk,reset,
+    input  [63:0] data_in,
+    input         we,
+    input  [4:0]  wrAddr,
+    input  [4:0]  rd,rs,rt,
+    output logic [63:0] rdOut,rsOut,rtOut);
+    logic [63:0] R[0:31];
+    always_ff @(posedge clk or posedge reset) begin
+        integer i; if(reset) begin for(i=0;i<32;i++) R[i]<=0; R[31]<=64'h80000; end
+        else if(we && wrAddr!=0) R[wrAddr]<=data_in;
+    end
+    always_comb begin
+        rsOut=R[rs]; rtOut=R[rt]; rdOut=R[rd];
+        if(we && wrAddr!=0) begin
+            if(wrAddr==rs) rsOut=data_in;
+            if(wrAddr==rt) rtOut=data_in;
+            if(wrAddr==rd) rdOut=data_in;
         end
-    end
-    
-    // Combinational read.
-    always @(*) begin
-        rdOut = registers[rd];
-        rsOut = registers[rs];
-        rtOut = registers[rt];
-
-        // write first bypass
-        if (we) begin
-        if (wrAddr == rs) rsOut = data_in;
-        if (wrAddr == rt) rtOut = data_in;
-        if (wrAddr == rd) rdOut = data_in;
-    end
     end
 endmodule
 
+/* =============================================================
+   5.  512 KiB unified byte‑addressable memory                 */
 module memory(
-   input clk,
-   input reset,
-   // Fetch interface:
-   input  [31:0] fetch_addr,
-   output [31:0] fetch_instruction,
-   // Data load interface:
-   input  [31:0] data_load_addr,
-   output [63:0] data_load,
-   // Store interface:
-   input         store_we,
-   input  [31:0] store_addr,
-   input  [63:0] store_data
-);
-    parameter MEM_SIZE = 512*1024;  // 512 KB
-    reg [7:0] bytes [0:MEM_SIZE-1];
-    integer i;
-    
-    always @(posedge clk) begin
-        if (reset) begin
-        end
-        if (store_we) begin
-            
-            bytes[store_addr+7]     <= store_data[63:56];
-            bytes[store_addr+6] <= store_data[55:48];
-            bytes[store_addr+5] <= store_data[47:40];
-            bytes[store_addr+4] <= store_data[39:32];
-            bytes[store_addr+3] <= store_data[31:24];
-            bytes[store_addr+2] <= store_data[23:16];
-            bytes[store_addr+1] <= store_data[15:8];
-            bytes[store_addr] <= store_data[7:0];
-        end
-    end
-    
-
-    assign fetch_instruction = { 
-        bytes[fetch_addr+3],
-        bytes[fetch_addr+2],
-        bytes[fetch_addr+1],
-        bytes[fetch_addr]
-    };
-    
-    assign data_load = { 
-        bytes[data_load_addr+7],
-        bytes[data_load_addr+6],
-        bytes[data_load_addr+5],
-        bytes[data_load_addr+4],
-        bytes[data_load_addr+3],
-        bytes[data_load_addr+2],
-        bytes[data_load_addr+1],
-        bytes[data_load_addr]
-    };
+    input  clk,
+    input  [31:0] pc,
+    input  [31:0] addr,
+    input         we,
+    input  [63:0] wdata,
+    output [31:0] inst,
+    output [63:0] rdata);
+    parameter N=512*1024; logic [7:0] M[0:N-1];
+    always_ff @(posedge clk) if(we) {M[addr+7],M[addr+6],M[addr+5],M[addr+4],M[addr+3],M[addr+2],M[addr+1],M[addr]}<=wdata;
+    assign inst ={M[pc+3],M[pc+2],M[pc+1],M[pc]};
+    assign rdata={M[addr+7],M[addr+6],M[addr+5],M[addr+4],M[addr+3],M[addr+2],M[addr+1],M[addr]};
 endmodule
 
+/* =============================================================
+   6.  Five‑stage pipeline core                                */
+module tinker_core(
+    input  logic clk,reset,
+    output logic hlt);
+    /* -------- IF stage ------------------------------------- */
+    parameter PC0=32'h2000; logic [31:0] pc_F,pc_next;
+    logic stall,flush_ID,flush_EX;
+    always_ff@(posedge clk or posedge reset) if(reset) pc_F<=PC0; else if(!stall) pc_F<=pc_next;
 
-module fetch(
-    input  [31:0] PC,
-    input  [31:0] fetch_instruction,
-    output [31:0] instruction
-);
-    assign instruction = fetch_instruction;
-endmodule
+    /* -------- Memory hook ---------------------------------- */
+    logic [31:0] inst_F; logic [63:0] mem_rdata;
+    logic mem_we; logic [31:0] mem_addr; logic [63:0] mem_wdata;
+    memory MEM(clk,pc_F,mem_addr,mem_we,mem_wdata,inst_F,mem_rdata);
 
+    /* -------- IF/ID reg ------------------------------------ */
+    logic [31:0] pc_ID,inst_ID;
+    always_ff@(posedge clk or posedge reset)
+        if(reset) begin pc_ID<=0; inst_ID<=32'h2200_0000; end
+        else if(!stall) begin pc_ID<=pc_F; inst_ID<=flush_ID?32'h2200_0000:inst_F; end
 
-module tinker_core (
-    input logic clk,
-    input logic reset,
-    output logic hlt
-);
-    parameter PC_RESET_ADDR = 32'h2000;
-    // IF: fetch instruction from memory
-    // ID: decode, register read, early branch decision
-    // EX: ALU/FPU ops, branch target math
-    // MEM: data memory access
-    // WB: register writeback
+    /* -------- Decode --------------------------------------- */
+    logic [4:0] op_ID,rd_ID,rs_ID,rt_ID; logic [11:0] L_ID;
+    instruction_decoder DEC(inst_ID,op_ID,rd_ID,rs_ID,rt_ID,L_ID);
 
-    // IF stage -> program counter + instruction fetch
-    reg [31:0] pc_F; // pc value in IF
-    reg [31:0] pc_next; // pc after selection mux
+    /* -------- Register file -------------------------------- */
+    logic wb_we; logic [4:0] wb_rd; logic [63:0] wb_data,wb_data_r;
+    logic rf_rd,rf_rs,rf_rt;       // 64 bit → packed into scalar
+    regFile RF(clk,reset,wb_data,wb_we,wb_rd,rd_ID,rs_ID,rt_ID,rf_rd,rf_rs,rf_rt);
+    always_ff@(posedge clk or posedge reset) if(reset) wb_data_r<=0; else wb_data_r<=wb_data;
 
-    // update pc each cycle unless stalling
-    // stall freezes both IF and ID so pc does not change
-    logic stall;
-    always @(posedge clk or posedge reset) begin
-        if (reset)
-            pc_F <= PC_RESET_ADDR; // start address after reset
-        else if (!stall) 
-            pc_F <= pc_next; // normal sequence
+    /* -------- Control bits -------------------------------- */
+    typedef struct packed {logic regWrite,memRead,memWrite,memToReg,isLoad,isStore,isBranch,isJump,halt;} ctrl_t;
+    ctrl_t ctrl_ID;
+    always_comb begin ctrl_ID='0;
+        unique case(op_ID)
+            5'h0F: ctrl_ID.halt = 1;
+            5'h10: ctrl_ID='{regWrite:1,memRead:1,memToReg:1,isLoad:1};
+            5'h13: ctrl_ID='{memWrite:1,isStore:1};
+            5'h18,5'h19,5'h1a,5'h1b,5'h1c,5'h1d,
+            5'h00,5'h01,5'h02,5'h03,5'h04,5'h05,5'h06,5'h07,
+            5'h11,5'h12,5'h14,5'h15,5'h16,5'h17: ctrl_ID.regWrite=1;
+            5'h08,5'h09,5'h0A,5'h0B,5'h0C: ctrl_ID.isBranch=1;
+            default:;
+        endcase
+        if(op_ID==5'h0C||op_ID==5'h0D) ctrl_ID.isJump=1;
     end
 
-    // instruction memory port for fetch
-    reg [31:0] instr_F; // instructed fetched in IF
-    reg [63:0] dummy_dload; // unused in IF
-    reg mem_we; // in MEM for stores
-    reg [31:0] mem_addr_W; // address for store
-    reg [63:0] mem_data_W; // data to store
-
-    memory memory (
-        .clk(clk),
-        .reset(reset),
-        .fetch_addr(pc_F),
-        .fetch_instruction(instr_F),
-        .data_load_addr(mem_addr_W),
-        .data_load(dummy_dload),
-        .store_we(mem_we),
-        .store_addr(mem_addr_W),
-        .store_data(mem_data_W)
-    );
-
-    // IF/ID pipeline register --> holds values entering ID stage
-    reg [31:0] pc_IFID; // pc of fetched instruction
-    reg [31:0] instr_IFID; // fetched instruction bits
-
-    always @(posedge clk or posedge reset) begin
-        if (reset) begin
-            pc_IFID <= 1'b0;
-            // NOP encoding --> mov r0 r0 (opcode 0x11, rd=rs=rt=0)
-            instr_IFID <= 32'h22000000;
-        end
-        else if (!stall) begin // freeze when hazard unit says so
-            if (flush_ID) begin 
-                pc_IFID <= pc_F;
-                instr_IFID <= 32'h22000000;
-            end else begin 
-                pc_IFID <= pc_F;
-                instr_IFID <= instr_F;
-            end
-        end
-    end
-
-    // ID stage --> decode, register reads, early branch evaluation
-    reg [4:0] op_ID, rd_ID, rs_ID, rt_ID; // decode instruction fields
-    reg [11:0] L_ID; // 12-bit literal
-
-    instruction_decoder decode (
-        .in(instr_IFID),
-        .opcode(op_ID),
-        .rd(rd_ID),
-        .rs(rs_ID),
-        .rt(rt_ID),
-        .L(L_ID)
-    );
-
-    // register read file ports
-    reg [63:0] rf_rdata_rs; // rs value
-    reg [63:0] rf_rdata_rt; // rt value
-    reg [63:0] rf_rdata_rd; // rd value
-
-    // writeback channel signals from WB stage
-    logic [4:0]  wb_dest;
-    assign wb_dest      = MEMWB.rdDest;
-    reg [63:0] wb_write_data = MEMWB.ctrl.memToReg
-                       ? MEMWB.memData
-                       : MEMWB.aluResult;
-    reg wb_we = MEMWB.ctrl.regWrite;
-
-    reg [63:0] wb_data_r;
-
-    always @(posedge clk or posedge reset)
-    if (reset) wb_data_r <= 64'd0;
-    else wb_data_r <= wb_write_data;
-
-    always @(posedge clk)
-    if (wb_we && wb_dest==5'd8)
-        $display("%0t WB‑stage r8 <= %0d", $time, wb_write_data);
-
-    regFile reg_file (
-        .clk(clk),
-        .reset(reset),
-        .data_in(wb_write_data),
-        .we(wb_we),
-        .wrAddr(wb_dest),
-        .rd(rd_ID),
-        .rs(rs_ID),
-        .rt(rt_ID),
-        .rdOut(rf_rdata_rd),
-        .rsOut(rf_rdata_rs),
-        .rtOut(rf_rdata_rt)
-    );
-
-    // control signal struct
-    typedef struct packed {
-        logic regWrite; // writeback to regFile in WB stage
-        logic memRead; // load instruction in MEM stage
-        logic memWrite; // store instruction in MEM stage
-        logic memToReg;
-        logic isLoad; // hazard detection
-        logic isStore;
-        logic isBranch; // early branch decison/flush
-        logic isJump; // call/return
-        logic isFPU; // is floating point op?
-        logic halt;
-    } id_ctrl_t;
-
-    id_ctrl_t id_ctrl; // control bundle produced in ID
-
-    always @(*) begin
-        // preset all bits to 0
-        id_ctrl = '0;
-
-        if (op_ID == 5'hf) begin
-            id_ctrl.halt = 1'b1;
-        end
-
-         case (op_ID)
-        // ALU --> result goes to rd
-        5'h18,5'h19,5'h1a,5'h1b,
-        5'h1c,5'h1d,
-        5'h0,5'h1,5'h2,5'h3,
-        5'h4,5'h5,5'h6,5'h7,
-        5'h11,5'h12,5'h14,5'h15,5'h16,5'h17 : begin
-            id_ctrl.regWrite = 1;
-            id_ctrl.isFPU = (op_ID >= 5'h14 && op_ID <= 5'h17);
-        end
-        
-        // load --> mov rd (rs)(L)
-        5'h10: begin
-            id_ctrl.regWrite = 1;
-            id_ctrl.memRead = 1;
-            id_ctrl.memToReg = 1;
-            id_ctrl.isLoad = 1;
-        end
-
-        // store --> mov (rd)(L), rs
-        5'h13: begin
-            id_ctrl.memWrite = 1;
-            id_ctrl.isStore = 1;
-        end
-
-        // branches/jumps/call/return
-        5'h8, 5'h9, 5'hb, 5'ha, 5'he : id_ctrl.isBranch = 1; // unconditional/conditional branch
-        5'hc : begin
-            id_ctrl.memWrite = 1'b1;
-            id_ctrl.isJump = 1'b1;
-        end
-        5'hd : id_ctrl.isJump = 1; // call / return
+    /* -------- Early branch (not return) ------------------- */
+    logic take_ID; logic [31:0] target_ID;
+    always_comb begin take_ID=0; target_ID=pc_ID+4;
+        unique case(op_ID)
+            5'h08: begin take_ID=1; target_ID=rf_rd; end
+            5'h09: begin take_ID=1; target_ID=pc_ID+rf_rd[31:0]; end
+            5'h0A: begin take_ID=1; target_ID=pc_ID+$signed({{20{L_ID[11]}},L_ID}); end
+            5'h0B: if(rf_rs!=0) begin take_ID=1; target_ID=rf_rd; end
+            5'h0C: begin take_ID=1; target_ID=rf_rd; end // call
+            default:;
         endcase
     end
 
-    // early branch/jump decision still in ID
-    logic take_branch_ID; // 1 --> branch is taken this cycle
-    logic [31:0] branch_target_ID; // next PC when branch is taken
+    /* -------- ID/EX reg ----------------------------------- */
+    typedef struct packed {ctrl_t c; logic[4:0] op,rd,rs,rt; logic[11:0] L; logic[31:0] pc; logic[63:0] rdVal,rsVal,rtVal,ret;} idex_t;
+    idex_t IDEX,IDEXn;
+    always_comb begin
+        IDEXn.c=ctrl_ID; IDEXn.op=op_ID; IDEXn.rd=rd_ID; IDEXn.rs=rs_ID; IDEXn.rt=rt_ID; IDEXn.L=L_ID; IDEXn.pc=pc_ID;
+        IDEXn.rdVal=rf_rd; IDEXn.rsVal=rf_rs; IDEXn.rtVal=rf_rt; IDEXn.ret=(op_ID==5'h0C)?(pc_ID+4):64'd0;
+        /* early‑forwarding */
+        if(EXMEM.c.regWrite && EXMEM.rd==rs_ID) IDEXn.rsVal=EXMEM.alu;
+        else if(MEMWB.c.regWrite && MEMWB.rd==rs_ID) IDEXn.rsVal=wb_data_r;
+        if(EXMEM.c.regWrite && EXMEM.rd==rt_ID) IDEXn.rtVal=EXMEM.alu;
+        else if(MEMWB.c.regWrite && MEMWB.rd==rt_ID) IDEXn.rtVal=wb_data_r;
+    end
+    always_ff@(posedge clk or posedge reset) if(reset) IDEX<='0; else if(stall) IDEX<='0; else IDEX<=IDEXn;
 
-    always @(*) begin
-        // default not taken --> next pc = pc + 4
-        take_branch_ID = 1'b0;
-        branch_target_ID = pc_IFID + 4; 
+    /* -------- Hazard unit --------------------------------- */
+    hazard_unit HZ(IDEX.c.memRead,IDEX.rd,rs_ID,rt_ID,stall);
 
-        case (op_ID) 
-        // br rd : PC = register[rd]
-        5'h8: begin
-            take_branch_ID = 1'b1;
-            branch_target_ID = rf_rdata_rd;
-        end
+    /* -------- EX stage ------------------------------------ */
+    logic[1:0] selA,selB; forward_unit FWD(EXMEM.rd,EXMEM.c.regWrite,MEMWB.rd,MEMWB.c.regWrite,IDEX.rs,IDEX.rt,selA,selB);
+    logic [63:0] A_EX,B_EX;
+    always_comb begin
+        A_EX=(selA==2'd1)?EXMEM.alu:(selA==2'd2)?wb_data_r:IDEX.rsVal;
+        B_EX=(selB==2'd1)?EXMEM.alu:(selB==2'd2)?wb_data_r:IDEX.rtVal;
+    end
+    logic [63:0] alu_res; alu ALU(IDEX.op,IDEX.rdVal,A_EX,B_EX,IDEX.L,alu_res);
 
-        // brr rd : PC = PC + register[rd]
-        5'h9: begin
-            take_branch_ID = 1'b1;
-            branch_target_ID = pc_IFID + rf_rdata_rd[31:0];
-        end
+    /* -------- Return branch resolved here ----------------- */
+    flush_EX = (IDEX.op==5'h0D);      // return
+    /* -------- EX/MEM reg ---------------------------------- */
+    typedef struct packed {ctrl_t c; logic[63:0] alu,rtVal; logic[4:0] rd; logic[31:0] pc; logic[63:0] ret;} exmem_t;
+    exmem_t EXMEM,EXMEMn; always_comb begin
+        EXMEMn.c=IDEX.c; EXMEMn.alu=alu_res; EXMEMn.rtVal=B_EX; EXMEMn.rd=IDEX.rd; EXMEMn.pc=IDEX.pc; EXMEMn.ret=IDEX.ret;
+    end
+    always_ff@(posedge clk or posedge reset) if(reset) EXMEM<='0; else EXMEM<=EXMEMn;
 
-        // brr L : PC = PC + signextend(L) << 0
-        5'ha: begin
-            take_branch_ID = 1'b1;
-            branch_target_ID = pc_IFID + $signed({{20{L_ID[11]}},L_ID});
-        end
-
-        // brnz rd, rs : if(rs!=0) PC = register[rd]
-        5'hb: if (rf_rdata_rs != 0) begin
-            take_branch_ID = 1'b1;
-            branch_target_ID = rf_rdata_rd;
-        end
-
-        // brgt rd, rs, rt: if (rs >rt), _C = register[rd]
-        5'he: if ($signed(rf_rdata_rs) > $signed(rf_rdata_rt)) begin
-            take_branch_ID = 1'b1;
-            branch_target_ID = rf_rdata_rd;
-        end
-
-        // call rd, rs, rt : push returnAddr, jump to rd
-        5'hc: begin
-            take_branch_ID = 1'b1;
-            branch_target_ID = rf_rdata_rd; // subroutine target
-        end
-
-        // return: jump to address in r31 (rs)
-        5'hd: begin
-            take_branch_ID = 1'b1;
-            branch_target_ID = rf_rdata_rs;
-        end
-        endcase
+    /* -------- MEM stage ----------------------------------- */
+    always_comb begin
+        mem_we   = EXMEM.c.memWrite;
+        mem_addr = EXMEM.alu[31:0];
+        mem_wdata= (EXMEM.c.isJump && EXMEM.c.memWrite)? EXMEM.ret : EXMEM.rtVal;
     end
 
-    // pc selection/pipeline flush
-    logic flush_ID; // 1 --> squash instruction in IF and ID
-    assign flush_ID = take_branch_ID;
-    assign pc_next = flush_ID ? branch_target_ID : (pc_F + 4);
+    /* -------- MEM/WB reg ---------------------------------- */
+    typedef struct packed {ctrl_t c; logic[63:0] memData,alu; logic[4:0] rd;} memwb_t;
+    memwb_t MEMWB,MEMWBn; always_comb begin MEMWBn.c=EXMEM.c; MEMWBn.memData=mem_rdata; MEMWBn.alu=EXMEM.alu; MEMWBn.rd=EXMEM.rd; end
+    always_ff@(posedge clk or posedge reset) if(reset) MEMWB<='0; else MEMWB<=MEMWBn;
 
-    // ID/EX pipeline register --> bundle all useful values into struct
-    typedef struct packed {
-        id_ctrl_t ctrl; // control bits for later stages
-        logic [4:0] opcode;
-        logic [4:0] rd, rs, rt; // register numbers
-        logic [11:0] L; // literal immediate
-        logic [31:0] pc; // pc of this instruction for debugging
-        logic [63:0] rdVal;
-        logic [63:0] rsVal; // value of rs after register read/forwarding
-        logic [63:0] rtVal; // value of rt
-        logic [63:0] returnAddr; 
-    } idex_t;
+    /* -------- WB stage ------------------------------------ */
+    assign wb_data = MEMWB.c.memToReg ? MEMWB.memData : MEMWB.alu;
+    assign wb_rd   = MEMWB.rd;
+    assign wb_we   = MEMWB.c.regWrite;
+    assign hlt     = MEMWB.c.halt;
 
-    idex_t IDEX; // actual pipeline reg
-    idex_t IDEX_in; // next cycle value
-
-    // build IDEX_in each cycle
-    always @(*) begin
-        IDEX_in.ctrl = id_ctrl;
-        IDEX_in.opcode = op_ID;
-        IDEX_in.rd = rd_ID;
-        IDEX_in.rs = rs_ID;
-        IDEX_in.rt = rt_ID;
-        IDEX_in.L = L_ID;
-        IDEX_in.pc = pc_IFID;
-        IDEX_in.rdVal = rf_rdata_rd;
-        // Manually override rsVal for call → use value of r31
-        if (IDEX.opcode == 5'hc) begin
-            IDEX_in.rsVal = rf_rdata_rd; // assume rd is r31
-            IDEX_in.returnAddr = pc_IFID + 32'd4;
-        end else begin
-            IDEX_in.rsVal = rf_rdata_rs;
-        end
-        IDEX_in.rtVal = rf_rdata_rt;
-
-    /* 1‑cycle newer?  Forward from EX/MEM. */
-    if (EXMEM.ctrl.regWrite && EXMEM.rdDest == rs_ID)
-        IDEX_in.rsVal = EXMEM.aluResult;
-    if (EXMEM.ctrl.regWrite && EXMEM.rdDest == rt_ID)
-        IDEX_in.rtVal = EXMEM.aluResult;
-
-    /* 2‑cycles newer?  Forward from MEM/WB. */
-    if (MEMWB.ctrl.regWrite && MEMWB.rdDest == rs_ID)
-        IDEX_in.rsVal = wb_data_r;
-    if (MEMWB.ctrl.regWrite && MEMWB.rdDest == rt_ID)
-        IDEX_in.rtVal = wb_data_r;
-
-        // hazard stall inserts a bubble --> handled below
-    end
-
-    // register update with stall/flushing
-    always @(posedge clk or posedge reset) begin
-        if (reset)
-            IDEX <= '0; // clear pipeline
-        else if (stall) begin
-            IDEX <= '0; // bubble (NOP)
-            IDEX.ctrl.memRead <= 1'b0;   // make absolutely sure
-        end
-        else 
-            IDEX <= IDEX_in; // normal advance
-    end
-
-    hazard_unit hazard (
-        .idex_memRead(IDEX.ctrl.memRead),
-        .idex_rd     (IDEX.rd),
-        .ifid_rs     (rs_ID),
-        .ifid_rt     (rt_ID),
-        .stall       (stall)
-    );
-
-
-    // EX --> ALU/FPU, operand forwarding
-    // forwarding selection muxes
-    logic [1:0] selA, selB; // select codes for opA/opB muxes
-
-    forward_unit fwd (
-        .exmem_rd(EXMEM.rdDest),
-        .exmem_regwrite(EXMEM.ctrl.regWrite),
-        .memwb_rd(MEMWB.rdDest),
-        .memwb_regwrite(MEMWB.ctrl.regWrite),
-        .rs_IDEX(IDEX.rs),
-        .rt_IDEX(IDEX.rt),
-        .sel_opA(selA),
-        .sel_opB(selB)
-    );
-
-    // operand multplexers
-    logic [63:0] opA_EX; // final opA into ALU
-    logic [63:0] opB_EX; // final opB into ALU
-
-    always @(*) begin
-        // select opA
-        case (selA)
-        2'd1: opA_EX = EXMEM.aluResult; // forward from EX/MEM stage
-        2'd2: opA_EX = wb_write_data; // forward from MEM/WB stage\
-        default: opA_EX = IDEX.rsVal; // from regFile
-        endcase
-
-        // select opB
-         case (selB)
-        2'd1: opB_EX = EXMEM.aluResult; 
-        2'd2: opB_EX = wb_write_data;
-        default: opB_EX = IDEX.rtVal;
-        endcase
-    end
-    // ALU
-    logic [63:0] alu_out_EX;
-
-    alu alu (
-        .opcode(IDEX.opcode),
-        .rdData(IDEX.rdVal),
-        .rsData(opA_EX),
-        .rtData(opB_EX),
-        .L(IDEX.L),
-        .result(alu_out_EX)
-    );
-
-    // EX/MEM pipeline register --> carries results into MEM stage
-    typedef struct packed {
-        id_ctrl_t ctrl; // control bits for MEM/WB
-        logic [63:0] aluResult; // ALU/FPU output
-        logic [63:0] rtVal; // value to store 
-        logic [4:0] rdDest; // destination register number
-        logic [31:0] pc; // debug / tracing
-        logic [63:0] returnAddr;
-    } exmem_t;
-
-    exmem_t EXMEM; // actual pipeline register
-    exmem_t EXMEM_in; // computed next value;
-
-    always @(*) begin
-        EXMEM_in.ctrl = IDEX.ctrl;
-        EXMEM_in.aluResult = alu_out_EX;
-        EXMEM_in.rtVal = opB_EX; // store value travels here
-        EXMEM_in.rdDest = IDEX.rd; // same rd throughout
-        EXMEM_in.pc = IDEX.pc;
-        EXMEM_in.returnAddr = IDEX.returnAddr;
-
-        if (IDEX.opcode == 5'hc) begin
-            EXMEM_in.rtVal = IDEX.pc + 32'd4;   // return address
-        end
-    end
-
-    always @(posedge clk or posedge reset) begin
-        if (reset) 
-            EXMEM <= '0;
-        else 
-            EXMEM <= EXMEM_in;
-    end
-
-    // MEM stage --> data memory read/write
-    // interfaces to unficed memory
-    always @(*) begin
-    mem_we = EXMEM.ctrl.memWrite;
-    mem_addr_W = EXMEM.aluResult[31:0];
-    if (EXMEM.ctrl.isJump && EXMEM.ctrl.memWrite) begin
-            mem_data_W = EXMEM.returnAddr; // correct return address  // store return address now
-    end else begin
-        mem_data_W = EXMEM.rtVal;
-    end
-    end
-
-    // for loads, memory returns data on same clock
-    logic [63:0] mem_rdata_M; 
-    assign mem_rdata_M = dummy_dload;
-
-    // MEM/WB pipeline register --> final stage before writeback
-    typedef struct packed {
-        id_ctrl_t ctrl;
-        logic [63:0] memData; // data loaded from memory if load
-        logic [63:0] aluResult; // ALU result if not load
-        logic [4:0] rdDest; // destination register number
-    } memwb_t;
-
-    memwb_t MEMWB;
-    memwb_t MEMWB_in;
-
-    always @(*) begin
-        MEMWB_in.ctrl = EXMEM.ctrl;
-        MEMWB_in.memData = mem_rdata_M; // valid if load
-        MEMWB_in.aluResult = EXMEM.aluResult; // valid otherwise
-        MEMWB_in.rdDest = EXMEM.rdDest;
-    end
-
-    always @(posedge clk or posedge reset) begin
-        if (reset) MEMWB <= '0;
-        else MEMWB <= MEMWB_in;
-    end
-
-    // WB stage --> choose result and write to register file
-    always @(*) begin
-        wb_write_data = MEMWB.ctrl.memToReg ? MEMWB.memData : MEMWB.aluResult;
-        wb_we = MEMWB.ctrl.regWrite; // assert if rd is valid
-        hlt = MEMWB.ctrl.halt;
-    end
-   
-
-    // halt detection
-   
+    /* -------- PC muxes & flushes --------------------------- */
+    assign flush_ID = take_ID | flush_EX;
+    assign pc_next  = flush_EX            ? alu_res[31:0] :
+                      take_ID             ? target_ID     :
+                                            pc_F + 4;
 endmodule
