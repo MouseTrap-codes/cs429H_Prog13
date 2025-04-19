@@ -325,6 +325,12 @@ module tinker_core (
                        : MEMWB.aluResult;
     reg wb_we = MEMWB.ctrl.regWrite;
 
+    reg [63:0] wb_data_r;
+
+    always @(posedge clk or posedge reset)
+    if (reset) wb_data_r <= 64'0;
+    else wb_data_r <= wb_write_data;
+
     always @(posedge clk)
     if (wb_we && wb_dest==5'd8)
         $display("%0t WB‑stage r8 <= %0d", $time, wb_write_data);
@@ -497,9 +503,9 @@ module tinker_core (
 
     /* 2‑cycles newer?  Forward from MEM/WB. */
     if (MEMWB.ctrl.regWrite && MEMWB.rdDest == rs_ID)
-        IDEX_in.rsVal = wb_write_data;
+        IDEX_in.rsVal = wb_data_r;
     if (MEMWB.ctrl.regWrite && MEMWB.rdDest == rt_ID)
-        IDEX_in.rtVal = wb_write_data;
+        IDEX_in.rtVal = wb_data_r;
 
         // hazard stall inserts a bubble --> handled below
     end
