@@ -477,6 +477,7 @@ module tinker_core (
         logic [63:0] rdVal;
         logic [63:0] rsVal; // value of rs after register read/forwarding
         logic [63:0] rtVal; // value of rt
+        logic [63:0] returnAddr; 
     } idex_t;
 
     idex_t IDEX; // actual pipeline reg
@@ -493,8 +494,9 @@ module tinker_core (
         IDEX_in.pc = pc_IFID;
         IDEX_in.rdVal = rf_rdata_rd;
         // Manually override rsVal for call → use value of r31
-        if (IDEX.opcode == 5'h0c) begin
+        if (IDEX.opcode == 5'hc) begin
             IDEX_in.rsVal = rf_rdata_rd; // assume rd is r31
+            IDEX_in.returnAddr = pc_IFID + 32'd4;
         end else begin
             IDEX_in.rsVal = rf_rdata_rs;
         end
@@ -589,6 +591,7 @@ module tinker_core (
         logic [63:0] rtVal; // value to store 
         logic [4:0] rdDest; // destination register number
         logic [31:0] pc; // debug / tracing
+        logic [63:0] returnAddr;
     } exmem_t;
 
     exmem_t EXMEM; // actual pipeline register
@@ -600,6 +603,7 @@ module tinker_core (
         EXMEM_in.rtVal = opB_EX; // store value travels here
         EXMEM_in.rdDest = IDEX.rd; // same rd throughout
         EXMEM_in.pc = IDEX.pc;
+        EXMEM_in.returnAddr = IDEX.returnAddr;
 
         if (IDEX.opcode == 5'hc) begin
             EXMEM_in.rtVal = IDEX.pc + 32'd4;   // return address
@@ -619,7 +623,7 @@ module tinker_core (
     mem_we = EXMEM.ctrl.memWrite;
     mem_addr_W = EXMEM.aluResult[31:0];
     if (EXMEM.ctrl.isJump && EXMEM.ctrl.memWrite) begin
-        mem_data_W = EXMEM.pc + 32'd4;  // store return address now
+            mem_data_W = EXMEM.returnAddr; // correct return address  // store return address now
     end else begin
         mem_data_W = EXMEM.rtVal;
     end
