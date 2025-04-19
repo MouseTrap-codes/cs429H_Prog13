@@ -490,15 +490,15 @@ module tinker_core (
     IDEX_in.rtVal = rf_rdata_rt;
 
     /* 1‑cycle newer?  Forward from EX/MEM. */
-    if (EXMEM.ctrl.regWrite && EXMEM.rdDest != 0 && EXMEM.rdDest == rs_ID)
+    if (EXMEM.ctrl.regWrite && EXMEM.rdDest == rs_ID)
         IDEX_in.rsVal = EXMEM.aluResult;
-    if (EXMEM.ctrl.regWrite && EXMEM.rdDest != 0 && EXMEM.rdDest == rt_ID)
+    if (EXMEM.ctrl.regWrite && EXMEM.rdDest == rt_ID)
         IDEX_in.rtVal = EXMEM.aluResult;
 
     /* 2‑cycles newer?  Forward from MEM/WB. */
-    if (MEMWB.ctrl.regWrite && MEMWB.rdDest != 0 && MEMWB.rdDest == rs_ID)
+    if (MEMWB.ctrl.regWrite && MEMWB.rdDest == rs_ID)
         IDEX_in.rsVal = wb_write_data;
-    if (MEMWB.ctrl.regWrite && MEMWB.rdDest != 0 && MEMWB.rdDest == rt_ID)
+    if (MEMWB.ctrl.regWrite && MEMWB.rdDest == rt_ID)
         IDEX_in.rtVal = wb_write_data;
 
         // hazard stall inserts a bubble --> handled below
