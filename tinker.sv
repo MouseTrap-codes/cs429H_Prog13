@@ -5,8 +5,6 @@ module forward_unit(
     input memwb_regwrite,
     input [4:0] rs_IDEX,
     input [4:0] rt_IDEX,
-    input [4:0] rd_IDEX,    // Added rd field for self-forwarding detection
-    input [4:0] opcode_IDEX, // Added opcode to detect add operations
     output logic[1:0] sel_opA,
     output logic [1:0] sel_opB
 );
@@ -31,49 +29,22 @@ module forward_unit(
             sel_opB = 2'd1;
         else if (memwb_regwrite && (memwb_rd == rt_IDEX))
             sel_opB = 2'd2;
-            
-        // Special case for ADD instructions (opcode 5'h18) where both operands are the same register
-        // This handles the case of "add r8, r8, r8" properly
-        if (opcode_IDEX == 5'h18 && rs_IDEX == rt_IDEX && rs_IDEX == rd_IDEX) begin
-            // If it's an ADD and all three registers are the same, ensure proper forwarding
-            if (exmem_regwrite && (exmem_rd == rs_IDEX)) begin
-                sel_opA = 2'd1;
-                sel_opB = 2'd1;
-            end
-            else if (memwb_regwrite && (memwb_rd == rs_IDEX)) begin
-                sel_opA = 2'd2;
-                sel_opB = 2'd2;
-            end
-        end
     end
 endmodule
 
 // detects load RAW hazard and requests a stall
 module hazard_unit(
-    input logic idex_memRead,  // 1 if ID/EX instruction is a load
-    input logic[4:0] idex_rd,  // idex dest register
-    input logic[4:0] ifid_rs,  // rs field of instruction in IF/ID
-    input logic[4:0] ifid_rt,  // rt field of instruction in IFID
-    // Add these new inputs
-    input logic[4:0] ifid_rd,  // rd field of instruction in IFID
-    input logic[4:0] ifid_opcode, // opcode of instruction in IFID
-    input logic exmem_regwrite, // EX/MEM regwrite control signal
-    input logic[4:0] exmem_rd,  // EX/MEM destination register
+    input logic idex_memRead, // 1 if ID/EX instruciton is a load
+    input logic[4:0] idex_rd, // idex dest register
+    input logic[4:0] ifid_rs, // rs field of instruction in IF/ID
+    input logic[4:0] ifid_rt, // rt field of instruction in IFID
     output logic stall
 );
+    // if next instruction needs register that will be produced by outstanding load
+    // --> stall one cycle because data will only be ready in the MEM stage
     always @(*) begin
-        // Default: stall on load-use hazard
         stall = (idex_memRead &&
-                ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
-                
-        // Additional check for ADD r8, r8, r8 type instructions
-        // Stall one cycle if there's a RAW hazard on a self-dependent ADD
-        if (ifid_opcode == 5'h18 && ifid_rd == ifid_rs && ifid_rd == ifid_rt) begin
-            // If previous instruction modifies the same register
-            if (exmem_regwrite && exmem_rd == ifid_rd) begin
-                stall = 1'b1; // Stall to allow the result to propagate
-            end
-        end
+                 ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
     end
 endmodule
 
@@ -530,14 +501,7 @@ module tinker_core (
         if (reset)
             IDEX <= '0; 
         else if (stall_hazard || take_return_M) begin
-            // Insert NOP while preserving regWrite = 0
-            IDEX <= '0;
-            // Insert a bubble with no side effects
-            IDEX.ctrl.regWrite <= 1'b0;
-            IDEX.ctrl.memWrite <= 1'b0;
-            IDEX.ctrl.memRead <= 1'b0;
-            IDEX.ctrl.isBranch <= 1'b0;
-            IDEX.ctrl.isJump <= 1'b0;
+            IDEX <= '0; // bubble (NOP)
         end
         else 
             IDEX <= IDEX_in;
@@ -549,15 +513,11 @@ module tinker_core (
         .idex_rd     (IDEX.rd),
         .ifid_rs     (rs_ID),
         .ifid_rt     (rt_ID),
-        .ifid_rd     (rd_ID),           // New
-        .ifid_opcode (op_ID),           // New
-        .exmem_regwrite(EXMEM.ctrl.regWrite), // New
-        .exmem_rd    (EXMEM.rdDest),    // New
         .stall       (stall_hazard)
     );
 
     wire stall_return = IDEX.ctrl.isReturn;
-    assign stall = stall_hazard;
+    assign stall = stall_hazard || stall_return;
 
 
     // EX --> ALU/FPU, operand forwarding
@@ -565,14 +525,12 @@ module tinker_core (
     logic [1:0] selA, selB; // select codes for opA/opB muxes
 
     forward_unit fwd (
-    .exmem_rd(EXMEM.rdDest),
+        .exmem_rd(EXMEM.rdDest),
         .exmem_regwrite(EXMEM.ctrl.regWrite),
         .memwb_rd(MEMWB.rdDest),
         .memwb_regwrite(MEMWB.ctrl.regWrite),
         .rs_IDEX(IDEX.rs),
         .rt_IDEX(IDEX.rt),
-        .rd_IDEX(IDEX.rd),          
-        .opcode_IDEX(IDEX.opcode),      
         .sel_opA(selA),
         .sel_opB(selB)
     );
