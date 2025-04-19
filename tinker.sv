@@ -5,6 +5,8 @@ module forward_unit(
     input memwb_regwrite,
     input [4:0] rs_IDEX,
     input [4:0] rt_IDEX,
+    input [4:0] rd_IDEX,    // Added rd field for self-forwarding detection
+    input [4:0] opcode_IDEX, // Added opcode to detect add operations
     output logic[1:0] sel_opA,
     output logic [1:0] sel_opB
 );
@@ -29,6 +31,20 @@ module forward_unit(
             sel_opB = 2'd1;
         else if (memwb_regwrite && (memwb_rd == rt_IDEX))
             sel_opB = 2'd2;
+            
+        // Special case for ADD instructions (opcode 5'h18) where both operands are the same register
+        // This handles the case of "add r8, r8, r8" properly
+        if (opcode_IDEX == 5'h18 && rs_IDEX == rt_IDEX && rs_IDEX == rd_IDEX) begin
+            // If it's an ADD and all three registers are the same, ensure proper forwarding
+            if (exmem_regwrite && (exmem_rd == rs_IDEX)) begin
+                sel_opA = 2'd1;
+                sel_opB = 2'd1;
+            end
+            else if (memwb_regwrite && (memwb_rd == rs_IDEX)) begin
+                sel_opA = 2'd2;
+                sel_opB = 2'd2;
+            end
+        end
     end
 endmodule
 
@@ -501,7 +517,14 @@ module tinker_core (
         if (reset)
             IDEX <= '0; 
         else if (stall_hazard || take_return_M) begin
-            IDEX <= '0; // bubble (NOP)
+            // Insert NOP while preserving regWrite = 0
+            IDEX <= '0;
+            // Insert a bubble with no side effects
+            IDEX.ctrl.regWrite <= 1'b0;
+            IDEX.ctrl.memWrite <= 1'b0;
+            IDEX.ctrl.memRead <= 1'b0;
+            IDEX.ctrl.isBranch <= 1'b0;
+            IDEX.ctrl.isJump <= 1'b0;
         end
         else 
             IDEX <= IDEX_in;
@@ -525,12 +548,14 @@ module tinker_core (
     logic [1:0] selA, selB; // select codes for opA/opB muxes
 
     forward_unit fwd (
-        .exmem_rd(EXMEM.rdDest),
+    .exmem_rd(EXMEM.rdDest),
         .exmem_regwrite(EXMEM.ctrl.regWrite),
         .memwb_rd(MEMWB.rdDest),
         .memwb_regwrite(MEMWB.ctrl.regWrite),
         .rs_IDEX(IDEX.rs),
         .rt_IDEX(IDEX.rt),
+        .rd_IDEX(IDEX.rd),          
+        .opcode_IDEX(IDEX.opcode),      
         .sel_opA(selA),
         .sel_opB(selB)
     );
@@ -539,14 +564,12 @@ module tinker_core (
     logic [63:0] opA_EX; // final opA into ALU
     logic [63:0] opB_EX; // final opB into ALU
 
-    logic [63:0] rd_val_EX; // forwarded rd value
-
     always @(*) begin
         // select opA
         case (selA)
         2'd1: opA_EX = EXMEM.aluResult; // forward from EX/MEM stage
         2'd2: opA_EX = wb_write_data; // forward from MEM/WB stage\
-        default: rd_val_EX = IDEX.rdVal; // from regFiles
+        default: opA_EX = IDEX.rsVal; // from regFile
         endcase
 
         // select opB
@@ -561,7 +584,7 @@ module tinker_core (
 
     alu alu (
         .opcode(IDEX.opcode),
-        .rdData(rd_val_EX),
+        .rdData(IDEX.rdVal),
         .rsData(opA_EX),
         .rtData(opB_EX),
         .L(IDEX.L),
