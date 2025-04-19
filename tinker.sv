@@ -159,6 +159,13 @@ module regFile (
         rdOut = registers[rd];
         rsOut = registers[rs];
         rtOut = registers[rt];
+
+        // write first bypass
+        if (we) begin
+        if (wrAddr == rs) rsOut = data_in;
+        if (wrAddr == rt) rtOut = data_in;
+        if (wrAddr == rd) rdOut = data_in;
+    end
     end
 endmodule
 
