@@ -50,17 +50,30 @@ endmodule
 
 // detects load RAW hazard and requests a stall
 module hazard_unit(
-    input logic idex_memRead, // 1 if ID/EX instruciton is a load
-    input logic[4:0] idex_rd, // idex dest register
-    input logic[4:0] ifid_rs, // rs field of instruction in IF/ID
-    input logic[4:0] ifid_rt, // rt field of instruction in IFID
+    input logic idex_memRead,  // 1 if ID/EX instruction is a load
+    input logic[4:0] idex_rd,  // idex dest register
+    input logic[4:0] ifid_rs,  // rs field of instruction in IF/ID
+    input logic[4:0] ifid_rt,  // rt field of instruction in IFID
+    // Add these new inputs
+    input logic[4:0] ifid_rd,  // rd field of instruction in IFID
+    input logic[4:0] ifid_opcode, // opcode of instruction in IFID
+    input logic exmem_regwrite, // EX/MEM regwrite control signal
+    input logic[4:0] exmem_rd,  // EX/MEM destination register
     output logic stall
 );
-    // if next instruction needs register that will be produced by outstanding load
-    // --> stall one cycle because data will only be ready in the MEM stage
     always @(*) begin
+        // Default: stall on load-use hazard
         stall = (idex_memRead &&
-                 ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
+                ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
+                
+        // Additional check for ADD r8, r8, r8 type instructions
+        // Stall one cycle if there's a RAW hazard on a self-dependent ADD
+        if (ifid_opcode == 5'h18 && ifid_rd == ifid_rs && ifid_rd == ifid_rt) begin
+            // If previous instruction modifies the same register
+            if (exmem_regwrite && exmem_rd == ifid_rd) begin
+                stall = 1'b1; // Stall to allow the result to propagate
+            end
+        end
     end
 endmodule
 
@@ -536,6 +549,10 @@ module tinker_core (
         .idex_rd     (IDEX.rd),
         .ifid_rs     (rs_ID),
         .ifid_rt     (rt_ID),
+        .ifid_rd     (rd_ID),           // New
+        .ifid_opcode (op_ID),           // New
+        .exmem_regwrite(EXMEM.ctrl.regWrite), // New
+        .exmem_rd    (EXMEM.rdDest),    // New
         .stall       (stall_hazard)
     );
 
