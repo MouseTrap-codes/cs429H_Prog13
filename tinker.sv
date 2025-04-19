@@ -298,15 +298,16 @@ module tinker_core (
     reg [4:0] op_ID, rd_ID, rs_ID, rt_ID; // decode instruction fields
     reg [11:0] L_ID; // 12-bit literal
 
+    wire isCall     = (op_ID == 5'hc);
+    wire isReturn   = (op_ID == 5'hd);
     // use r31 as the stack‑pointer source for CALL / RETURN
-    wire isCallOrRet   = (instr_IFID[31:27] == 5'hc) || (instr_IFID[31:27] == 5'hd);
-    wire [4:0] rs_addr = isCallOrRet ? 5'd31 : instr_IFID[21:17];
+    wire [4:0] rs_port_addr = (isCall || isReturn) ? 5'd31 : rs_ID;
 
     instruction_decoder decode (
         .in(instr_IFID),
         .opcode(op_ID),
         .rd(rd_ID),
-        .rs(rs_addr),
+        .rs(rs_ID),
         .rt(rt_ID),
         .L(L_ID)
     );
@@ -331,7 +332,7 @@ module tinker_core (
         .we(wb_we),
         .wrAddr(wb_dest),
         .rd(rd_ID),
-        .rs(rs_addr),
+        .rs(rs_port_addr),
         .rt(rt_ID),
         .rdOut(rf_rdata_rd),
         .rsOut(rf_rdata_rs),
