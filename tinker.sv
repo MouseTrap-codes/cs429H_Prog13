@@ -500,7 +500,7 @@ module tinker_core (
     always @(posedge clk or posedge reset) begin
         if (reset)
             IDEX <= '0; // clear pipeline
-        else if (stall) begin
+        else if (stall_hazard) begin
             IDEX <= '0; // bubble (NOP)
         end
         // else if (flush_ID) begin
