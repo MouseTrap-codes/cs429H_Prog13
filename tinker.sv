@@ -512,7 +512,7 @@ module tinker_core (
 
     wire stall_hazard;
     hazard_unit hazard (
-        .idex_memRead(IDEX.ctrl.memRead),
+        .idex_memRead(IDEX.ctrl.isLoad),
         .idex_rd     (IDEX.rd),
         .ifid_rs     (rs_ID),
         .ifid_rt     (rt_ID),
