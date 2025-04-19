@@ -149,11 +149,7 @@ module regFile (
     always @(posedge clk) begin
         if (reset) begin
             for (i = 0; i < 32; i = i + 1) begin // Changed from 31 to 32 to include r31
-                if (i != 8) begin
-                    registers[i] <= 64'b0;
-                end
-                registers[8] <= 64'd23;
-
+                registers[i] <= 64'b0;
             end
             registers[31] <= 64'h80000;
         end else begin
