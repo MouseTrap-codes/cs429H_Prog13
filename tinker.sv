@@ -259,6 +259,7 @@ module tinker_core (
     reg [31:0] mem_addr_W; // address for store
     reg [63:0] mem_data_W; // data to store
 
+    wire [63:0] mem_rdata_M;
 
     memory memory (
         .clk(clk),
@@ -611,8 +612,8 @@ module tinker_core (
     end
 
     // for loads, memory returns data on same clock
-    logic [63:0] mem_rdata_M; 
-    assign mem_rdata_M = dummy_dload;
+    //logic [63:0] mem_rdata_M; 
+    //assign mem_rdata_M = dummy_dload;
 
     // MEM/WB pipeline register --> final stage before writeback
     typedef struct packed {
