@@ -267,7 +267,7 @@ module tinker_core (
         .fetch_addr(pc_F),
         .fetch_instruction(instr_F),
         .data_load_addr(mem_addr_W),
-        .data_load(dummy_dload),
+        .data_load(mem_rdata_M),
         .store_we(mem_we),
         .store_addr(mem_addr_W),
         .store_data(mem_data_W)
