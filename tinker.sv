@@ -278,14 +278,13 @@ module tinker_core (
     reg [31:0] instr_IFID; // fetched instruction bits
 
     always @(posedge clk or posedge reset) begin
-        if (reset) begin
-            pc_IFID <= 1'b0;
-            // NOP encoding --> mov r0 r0 (opcode 0x11, rd=rs=rt=0)
-            instr_IFID <= 32'h22000000;
-        end
-        else if (!stall) begin // freeze when hazard unit says so
+    if (reset) begin
+        pc_IFID <= 1'b0;
+        instr_IFID <= 32'h22000000;
+    end
+    else if (!stall) begin 
             if (flush_ID | take_return_M) begin
-                // squash the instruction that wa s just fetched
+                // squash the instruction that was just fetched
                 pc_IFID <= 32'b0;
                 instr_IFID <= 32'h22000000; // NOP
             end else begin
@@ -499,15 +498,12 @@ module tinker_core (
     // register update with stall/flushing
     always @(posedge clk or posedge reset) begin
         if (reset)
-            IDEX <= '0; // clear pipeline
-        else if (stall_hazard) begin
+            IDEX <= '0; 
+        else if (stall_hazard || take_return_M) begin
             IDEX <= '0; // bubble (NOP)
         end
-        // else if (flush_ID) begin
-        //     IDEX <= '0; // squash after taken branch
-        // end
         else 
-            IDEX <= IDEX_in; // normal advance
+            IDEX <= IDEX_in;
     end
 
     wire stall_hazard;
@@ -599,6 +595,8 @@ module tinker_core (
     always @(posedge clk or posedge reset) begin
         if (reset) 
             EXMEM <= '0;
+        else if (take_return_M)
+            EXMEM <= '0; // flush pipeline when return is executing
         else 
             EXMEM <= EXMEM_in;
     end
