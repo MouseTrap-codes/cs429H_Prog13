@@ -520,7 +520,7 @@ module tinker_core (
     );
 
     wire stall_return = IDEX.ctrl.isReturn;
-    assign stall = stall_hazard || stall_return;
+    assign stall = stall_hazard;
 
 
     // EX --> ALU/FPU, operand forwarding
