@@ -42,13 +42,9 @@ module hazard_unit(
     input logic[4:0] ifid_rd,  // rd field of instruction in IF/ID (for checking self-dependencies)
     output logic stall
 );
-    // Detect load-use hazards and other potential RAW hazards
     always @(*) begin
-        // Standard load-use hazard
         stall = (idex_memRead && ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
         
-        // Additional check for critical cases where a register is used immediately after being updated
-        // Especially for self-dependent operations like add r8, r8, r8
         // if (idex_regwrite && idex_rd == ifid_rd && idex_rd == ifid_rs && idex_rd == ifid_rt) begin
         //     stall = 1'b1; // Stall if we have consecutive self-dependent operations
         // end
