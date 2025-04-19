@@ -328,7 +328,7 @@ module tinker_core (
     reg [63:0] wb_data_r;
 
     always @(posedge clk or posedge reset)
-    if (reset) wb_data_r <= 64'0;
+    if (reset) wb_data_r <= 64'd0;
     else wb_data_r <= wb_write_data;
 
     always @(posedge clk)
