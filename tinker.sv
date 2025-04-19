@@ -325,6 +325,10 @@ module tinker_core (
                        : MEMWB.aluResult;
     reg wb_we = MEMWB.ctrl.regWrite;
 
+    always @(posedge clk)
+    if (wb_we && wb_dest==5'd8)
+        $display("%0t WB‑stage r8 <= %0d", $time, wb_write_data);
+
     regFile reg_file (
         .clk(clk),
         .reset(reset),
