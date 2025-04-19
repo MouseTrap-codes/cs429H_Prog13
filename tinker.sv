@@ -146,10 +146,17 @@ module regFile (
     reg [63:0] registers [0:31];
     integer i;
     
+    // Initialize r8 with the correct value
+    initial begin
+        registers[8] = 64'd23;
+    end
+    
     always @(posedge clk) begin
         if (reset) begin
-            for (i = 0; i < 32; i = i + 1)  // Changed from 31 to 32 to include r31
-                registers[i] <= 64'b0;
+            for (i = 0; i < 32; i = i + 1) begin
+                if (i != 8) // Don't reset r8
+                    registers[i] <= 64'b0;
+            end
             registers[31] <= 64'h80000;
         end else begin
             if (we)
