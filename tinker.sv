@@ -133,7 +133,7 @@ module regFile (
     input  [63:0] data_in,   // Data to write
     input         we,        // Write enable
     input [4:0]   wrAddr,
-    input  [4:0]  rd,        // Write address
+    input  [4:0]  rd,        
     input  [4:0]  rs,        // Read address 1
     input  [4:0]  rt,        // Read address 2
     output reg [63:0] rdOut, // Data out pota rd
@@ -148,7 +148,6 @@ module regFile (
             for (i = 0; i < 32; i = i + 1)  // Changed from 31 to 32 to include r31
                 registers[i] <= 64'b0;
             registers[31] <= 64'h80000;
-            // Make sure your initial values are loaded correctly here
         end else begin
             if (we)
                 registers[wrAddr] <= data_in;
@@ -321,10 +320,19 @@ module tinker_core (
     // writeback channel signals from WB stage
     logic [4:0]  wb_dest;
     assign wb_dest      = MEMWB.rdDest;
-    reg [63:0] wb_write_data = MEMWB.ctrl.memToReg
-                       ? MEMWB.memData
-                       : MEMWB.aluResult;
-    reg wb_we = MEMWB.ctrl.regWrite;
+
+    reg [63:0] wb_write_data;
+    reg wb_we;
+
+    always @(*) begin
+        wb_write_data = MEMWB.ctrl.memToReg
+                    ? MEMWB.memData
+                    : MEMWB.aluResult;
+    end
+    
+    always @(*) begin 
+        wb_we = MEMWB.ctrl.regWrite;
+    end
 
     regFile reg_file (
         .clk(clk),
@@ -543,7 +551,7 @@ module tinker_core (
         // select opA
         case (selA)
         2'd1: opA_EX = EXMEM.aluResult; // forward from EX/MEM stage
-        2'd2: opA_EX = wb_write_data; // forward from MEM/WB stage\
+        2'd2: opA_EX = wb_write_data; // forward from MEM/WB stage
         default: opA_EX = IDEX.rsVal; // from regFile
         endcase
 
