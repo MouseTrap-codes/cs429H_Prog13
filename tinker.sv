@@ -49,9 +49,9 @@ module hazard_unit(
         
         // Additional check for critical cases where a register is used immediately after being updated
         // Especially for self-dependent operations like add r8, r8, r8
-        if (idex_regwrite && idex_rd == ifid_rd && idex_rd == ifid_rs && idex_rd == ifid_rt) begin
-            stall = 1'b1; // Stall if we have consecutive self-dependent operations
-        end
+        // if (idex_regwrite && idex_rd == ifid_rd && idex_rd == ifid_rs && idex_rd == ifid_rt) begin
+        //     stall = 1'b1; // Stall if we have consecutive self-dependent operations
+        // end
     end
 endmodule
 
