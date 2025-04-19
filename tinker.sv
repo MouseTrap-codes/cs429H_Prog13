@@ -145,8 +145,8 @@ module regFile (
     
     always @(posedge clk) begin
         if (reset) begin
-            for (i = 0; i < 32; i = i + 1)  // Changed from 31 to 32 to include r31
-                registers[i] <= 64'b0;
+            // for (i = 0; i < 32; i = i + 1)  // Changed from 31 to 32 to include r31
+            //     registers[i] <= 64'b0;
             registers[31] <= 64'h80000;
             // Make sure your initial values are loaded correctly here
         end else begin
