@@ -34,17 +34,24 @@ endmodule
 
 // detects load RAW hazard and requests a stall
 module hazard_unit(
-    input logic idex_memRead, // 1 if ID/EX instruciton is a load
-    input logic[4:0] idex_rd, // idex dest register
-    input logic[4:0] ifid_rs, // rs field of instruction in IF/ID
-    input logic[4:0] ifid_rt, // rt field of instruction in IFID
+    input logic idex_memRead,  // 1 if ID/EX instruciton is a load
+    input logic idex_regwrite, // 1 if ID/EX will write to a register
+    input logic[4:0] idex_rd,  // idex dest register
+    input logic[4:0] ifid_rs,  // rs field of instruction in IF/ID
+    input logic[4:0] ifid_rt,  // rt field of instruction in IFID
+    input logic[4:0] ifid_rd,  // rd field of instruction in IF/ID (for checking self-dependencies)
     output logic stall
 );
-    // if next instruction needs register that will be produced by outstanding load
-    // --> stall one cycle because data will only be ready in the MEM stage
+    // Detect load-use hazards and other potential RAW hazards
     always @(*) begin
-        stall = (idex_memRead &&
-                 ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
+        // Standard load-use hazard
+        stall = (idex_memRead && ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
+        
+        // Additional check for critical cases where a register is used immediately after being updated
+        // Especially for self-dependent operations like add r8, r8, r8
+        if (idex_regwrite && idex_rd == ifid_rd && idex_rd == ifid_rs && idex_rd == ifid_rt) begin
+            stall = 1'b1; // Stall if we have consecutive self-dependent operations
+        end
     end
 endmodule
 
@@ -518,9 +525,11 @@ module tinker_core (
     wire stall_hazard;
     hazard_unit hazard (
         .idex_memRead(IDEX.ctrl.isLoad),
+        .idex_regwrite(IDEX.ctrl.regWrite),
         .idex_rd     (IDEX.rd),
         .ifid_rs     (rs_ID),
         .ifid_rt     (rt_ID),
+        .ifid_rd     (rd_ID),
         .stall       (stall_hazard)
     );
 
