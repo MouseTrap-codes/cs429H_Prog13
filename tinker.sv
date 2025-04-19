@@ -45,9 +45,6 @@ module hazard_unit(
     always @(*) begin
         stall = (idex_memRead &&
                  ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
-
-        if (exmem_regwrite && exmem_rd == ifid_rs && ifid_rs == ifid_rt && ifid_rs == 8)
-            stall = 1'b1;
     end
 endmodule
 
