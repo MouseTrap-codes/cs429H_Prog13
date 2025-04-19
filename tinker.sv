@@ -46,7 +46,7 @@ module hazard_unit(
         stall = (idex_memRead && ((idex_rd == ifid_rs) || (idex_rd == ifid_rt)));
         
         if (idex_regwrite && idex_rd == ifid_rd && idex_rd == ifid_rs && idex_rd == ifid_rt) begin
-            stall = 1'b1; // Stall if we have consecutive self-dependent operations
+            stall = 1'b1; // stall if we have consecutive self-dependent operations
         end
     end
 endmodule
