@@ -584,8 +584,11 @@ module tinker_core (
     always @(*) begin
         EXMEM_in.ctrl = IDEX.ctrl;
         EXMEM_in.aluResult = alu_out_EX;
-        EXMEM_in.rtVal = opB_EX; // store value travels here
-        EXMEM_in.rdDest = IDEX.rd; // same rd throughout
+        
+        // For store instructions, use rs (not rt) as the value to store
+        EXMEM_in.rtVal = IDEX.ctrl.isStore ? opA_EX : opB_EX;
+        
+        EXMEM_in.rdDest = IDEX.rd;
         EXMEM_in.pc = IDEX.pc;
 
         if (IDEX.opcode == 5'hc) begin
