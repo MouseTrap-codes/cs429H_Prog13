@@ -601,9 +601,9 @@ module tinker_core (
         EXMEM_in.rdDest = IDEX.rd; // same rd throughout
         EXMEM_in.pc = IDEX.pc;
 
-        // if (IDEX.opcode == 5'hc) begin
-        //     EXMEM_in.rtVal = IDEX.pc + 32'd4;   // return address
-        // end
+        if (IDEX.opcode == 5'hc) begin
+            EXMEM_in.rtVal = IDEX.pc + 32'd4;   // return address
+        end
     end
 
     always @(posedge clk or posedge reset) begin
