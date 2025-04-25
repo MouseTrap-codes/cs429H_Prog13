@@ -55,7 +55,21 @@ module hazard_unit(
     end
 endmodule
 
-// Fix for ALU component - ensure proper operations for branch instructions
+module instruction_decoder(
+    input  [31:0] in,       // 32-bit instruction
+    output [4:0]  opcode,   // Bits [31:27]
+    output [4:0]  rd,       // Bits [26:22]
+    output [4:0]  rs,       // Bits [21:17]
+    output [4:0]  rt,       // Bits [16:12]
+    output [11:0] L         // Bits [11:0]
+);
+    assign opcode = in[31:27];
+    assign rd     = in[26:22];
+    assign rs     = in[21:17];
+    assign rt     = in[16:12];
+    assign L      = in[11:0];
+endmodule
+
 module alu (
     input  [4:0]  opcode,
     input  [63:0] rdData,       // First operand
@@ -126,7 +140,7 @@ module alu (
     end
 endmodule
 
-// Fix for Register File to properly handle read/write operations
+
 module regFile (
     input         clk,
     input         reset,
@@ -163,7 +177,70 @@ module regFile (
     end
 endmodule
 
-// Fix for tinker_core's memory interface and control logic
+module memory(
+   input clk,
+   input reset,
+   // Fetch interface:
+   input  [31:0] fetch_addr,
+   output [31:0] fetch_instruction,
+   // Data load interface:
+   input  [31:0] data_load_addr,
+   output [63:0] data_load,
+   // Store interface:
+   input         store_we,
+   input  [31:0] store_addr,
+   input  [63:0] store_data
+);
+    parameter MEM_SIZE = 512*1024;  // 512 KB
+    reg [7:0] bytes [0:MEM_SIZE-1];
+    integer i;
+    
+    always @(posedge clk) begin
+        if (reset) begin
+        end
+        if (store_we) begin
+            
+            bytes[store_addr+7]     <= store_data[63:56];
+            bytes[store_addr+6] <= store_data[55:48];
+            bytes[store_addr+5] <= store_data[47:40];
+            bytes[store_addr+4] <= store_data[39:32];
+            bytes[store_addr+3] <= store_data[31:24];
+            bytes[store_addr+2] <= store_data[23:16];
+            bytes[store_addr+1] <= store_data[15:8];
+            bytes[store_addr] <= store_data[7:0];
+        end
+    end
+    
+
+    assign fetch_instruction = { 
+        bytes[fetch_addr+3],
+        bytes[fetch_addr+2],
+        bytes[fetch_addr+1],
+        bytes[fetch_addr]
+    };
+    
+    assign data_load = { 
+        bytes[data_load_addr+7],
+        bytes[data_load_addr+6],
+        bytes[data_load_addr+5],
+        bytes[data_load_addr+4],
+        bytes[data_load_addr+3],
+        bytes[data_load_addr+2],
+        bytes[data_load_addr+1],
+        bytes[data_load_addr]
+    };
+endmodule
+
+
+module fetch(
+    input  [31:0] PC,
+    input  [31:0] fetch_instruction,
+    output [31:0] instruction
+);
+    assign instruction = fetch_instruction;
+endmodule
+
+
 module tinker_core (
     input logic clk,
     input logic reset,
